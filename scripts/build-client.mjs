@@ -106,3 +106,23 @@ writeFileSync(join(root, 'client/client.js'), wrapped);
 if (process.env.RAG_METAFILE) writeFileSync(process.env.RAG_METAFILE, JSON.stringify(result.metafile));
 const kb = Math.round(wrapped.length / 1024);
 console.log(`client/client.js ${kb} KiB`);
+
+// 独立窗口版：系统浏览器里直接打开 /rag/standalone 时加载的那一份。
+// 这里没有宿主模块表可借，react 全部打包进去，所以做成 iife 自执行。
+const standalone = await build({
+  absWorkingDir: root,
+  entryPoints: ['src/standalone/main.jsx'],
+  bundle: true,
+  write: false,
+  format: 'iife',
+  platform: 'browser',
+  target: ['es2020'],
+  jsx: 'automatic',
+  loader: { '.css': 'text', '.svg': 'text', '.png': 'dataurl', '.woff2': 'binary', '.woff': 'binary' },
+  define: { 'process.env.NODE_ENV': '"production"' },
+  plugins: [emojiStub, cssImportInline],
+  logLevel: 'info',
+  minify: process.env.RAG_NO_MINIFY !== '1',
+});
+writeFileSync(join(root, 'client/standalone.js'), standalone.outputFiles[0].text);
+console.log(`client/standalone.js ${Math.round(standalone.outputFiles[0].text.length / 1024)} KiB`);

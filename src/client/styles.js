@@ -20,8 +20,8 @@ export const RAG_CSS = `
 .rag-ico{flex:0 0 auto;opacity:.5}
 .rag-ico-lib{opacity:.8}
 .rag-lib.is-active .rag-ico,.rag-row.is-active .rag-ico{opacity:1;color:var(--dsw-alias-accent,#2f6bff)}
-.rag-icon-btn{border:none;background:transparent;color:inherit;opacity:.6;cursor:pointer;font-size:13px;line-height:1;padding:3px 6px;border-radius:6px}
-.rag-icon-btn:hover{opacity:1;background:rgba(0,0,0,.05)}
+.rag-icon-btn{border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.12));background:transparent;color:inherit;opacity:.75;cursor:pointer;font-size:15px;line-height:1;padding:4px 9px;border-radius:6px;min-width:28px}
+.rag-icon-btn:hover{opacity:1;background:rgba(0,0,0,.06)}
 .rag-lib:hover{background:rgba(0,0,0,.03)}
 .rag-lib.is-active{background:rgba(47,107,255,.1)}
 .rag-lib-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -116,7 +116,8 @@ export const RAG_CSS = `
 .rag-root.is-rail-collapsed{--rag-rail:0px}
 .rag-root.is-side-collapsed{--rag-side:0px}
 .rag-root.is-rail-collapsed .rag-rail,.rag-root.is-side-collapsed .rag-side{display:none}
-.rag-fullscreen{position:fixed;inset:0;z-index:200;display:flex;background:var(--dsw-alias-bg-base,#fff)}
+.rag-fullscreen{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;padding-top:44px;background:var(--dsw-alias-bg-base,#fff)}
+.rag-fullscreen>.rag-root{flex:1;min-height:0}
 .rag-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:80}
 .rag-modal{width:min(420px,86vw);background:var(--dsw-alias-bg-elevated,#fff);color:var(--dsw-alias-text-primary,inherit);border-radius:12px;padding:16px 18px;box-shadow:0 18px 48px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:12px;font-size:13px}
 .rag-modal-title{margin:0;font-weight:600;line-height:1.5}

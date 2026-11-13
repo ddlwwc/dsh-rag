@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createRoot } from 'react-dom/client';
 import { api, errorText } from './api.js';
 import { MarkdownEditor, currentAnchor, focusBlock, resolveAnchor } from './blocknote.jsx';
 import { PromptDialog } from './dialog.jsx';
 import { TreeNode } from './tree.jsx';
 import { RAG_CSS } from './styles.js';
-import { applyThemeVars, fileToBase64, newNoteId, observeTheme, openFullscreenWindow, readThemeName } from './helpers.js';
+import { fileToBase64, newNoteId, observeTheme, readThemeName } from './helpers.js';
 import { LibraryIcon } from './icons.jsx';
 
 const SAVE_DELAY = 900;
@@ -19,7 +18,7 @@ function writeFlag(name, value) {
   try { localStorage.setItem(FLAG_PREFIX + name, value ? '1' : '0'); } catch {}
 }
 
-export function RagPage({ ctx, onStartRole, onCloseFullscreen = null }) {
+export function RagPage({ ctx, onStartRole, standalone = false }) {
   const [libraries, setLibraries] = useState([]);
   const [activeId, setActiveId] = useState('');
   const [tree, setTree] = useState([]);
@@ -52,9 +51,6 @@ export function RagPage({ ctx, onStartRole, onCloseFullscreen = null }) {
   // 左右两栏可整块收起：把编辑区让出来，状态记在本地，下次打开还是这个样子。
   const [railCollapsed, setRailCollapsed] = useState(() => readFlag('rail-collapsed'));
   const [sideCollapsed, setSideCollapsed] = useState(() => readFlag('side-collapsed'));
-  // 浏览器拦了新窗口时的页内兜底。
-  const [inlineFull, setInlineFull] = useState(false);
-  const fullRef = useRef(null);
 
   const [dialog, setDialog] = useState(null);
   const dialogResolve = useRef(null);
@@ -94,47 +90,24 @@ export function RagPage({ ctx, onStartRole, onCloseFullscreen = null }) {
 
   const fail = useCallback((err) => setError(errorText(err)), []);
 
-  /**
-   * 全屏：开一个独立窗口，把知识库这一页整个搬进去（不带 DSH 外壳）。
-   * 窗口被拦时退回页内全屏 —— 点了至少得有点反应。
-   */
-  const openFullscreen = useCallback(() => {
-    const existing = fullRef.current;
-    if (existing && !existing.closed) { existing.focus(); return; }
-    const win = openFullscreenWindow('知识库');
-    if (!win) {
-      setInlineFull(true);
-      toast('新窗口被浏览器拦了，已切到页内全屏');
-      return;
+  // 全屏：桌面端 Electron 把 window.open 一律 deny（http/https 交给系统浏览器），
+  // 所以「弹新窗口」= 用系统浏览器打开 /rag/standalone —— 那是一个真的独立窗口。
+  const openFullscreen = useCallback(async () => {
+    let origin = 'http://127.0.0.1:53156';
+    try {
+      const response = await fetch('/rag/health');
+      if (response.ok) origin = (await response.json()).url || origin;
+    } catch {
+      // 拿不到就用默认本机地址，反正只有本机会话能访问
     }
-    const host = win.document.createElement('div');
-    host.style.height = '100%';
-    win.document.body.appendChild(host);
-    const root = createRoot(host);
-    const close = () => {
-      try { root.unmount(); } catch {}
-      if (!win.closed) win.close();
-      if (fullRef.current === win) fullRef.current = null;
-    };
-    fullRef.current = win;
-    win.addEventListener('beforeunload', () => { if (fullRef.current === win) fullRef.current = null; });
-    root.render(<RagPage ctx={ctx} onStartRole={onStartRole} onCloseFullscreen={close} />);
-  }, [ctx, onStartRole, toast]);
+    window.open(origin + '/rag/standalone', 'dsh-rag-standalone', 'popup=yes,width=1440,height=960');
+    toast('已用浏览器打开知识库');
+  }, [toast]);
 
   // 跟住宿主主题：用户切深色时编辑器要跟着切，不然白底会刺眼。
   useEffect(() => observeTheme(setThemeName), []);
   useEffect(() => { writeFlag('rail-collapsed', railCollapsed); }, [railCollapsed]);
   useEffect(() => { writeFlag('side-collapsed', sideCollapsed); }, [sideCollapsed]);
-  // 宿主换主题时，独立窗口里的知识库也得跟着换（那边是另一份 CSS 变量快照）。
-  useEffect(() => {
-    const win = fullRef.current;
-    if (win && !win.closed) applyThemeVars(win.document);
-  }, [themeName]);
-  // 关掉主窗口时顺手把独立窗口一起收走，不留孤儿进程。
-  useEffect(() => () => {
-    const win = fullRef.current;
-    if (win && !win.closed) win.close();
-  }, []);
 
   /**
    * 正文里贴图/拖图时由编辑器回调到这里。Host 负责落盘（七牛或本地 _assets/），
@@ -808,10 +781,8 @@ export function RagPage({ ctx, onStartRole, onCloseFullscreen = null }) {
               <button type="button" className="rag-btn" onClick={() => setSideCollapsed(false)} title="展开笔记栏">笔记栏</button>
             )}
             <button type="button" className="rag-btn rag-side-toggle" onClick={() => setSideOpen((v) => !v)} title="笔记与角色">侧栏</button>
-            {onCloseFullscreen ? (
-              <button type="button" className="rag-btn" onClick={() => onCloseFullscreen()} title="关闭这个全屏窗口">退出全屏</button>
-            ) : (
-              <button type="button" className="rag-btn" onClick={openFullscreen} title="在新窗口里看知识库（全屏）">⤢ 全屏</button>
+            {!standalone && (
+              <button type="button" className="rag-btn" onClick={openFullscreen} title="在独立窗口（系统浏览器）里打开知识库">⤢ 独立窗口</button>
             )}
             {doc && <button type="button" className="rag-btn rag-btn-primary" onClick={() => flushSave(latest.current.conflict)}>保存</button>}
           </div>
@@ -968,11 +939,6 @@ export function RagPage({ ctx, onStartRole, onCloseFullscreen = null }) {
           <p className="rag-hint">点角色会开一个带它人格的新会话，并把当前文档位置带过去。</p>
         </div>
       </aside>
-      {inlineFull && (
-        <div className="rag-fullscreen">
-          <RagPage ctx={ctx} onStartRole={onStartRole} onCloseFullscreen={() => setInlineFull(false)} />
-        </div>
-      )}
       {dialog && (
         <PromptDialog
           dialog={dialog}
