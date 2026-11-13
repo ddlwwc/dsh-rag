@@ -650,7 +650,8 @@ export function RagPage({ ctx, onStartRole }) {
             <button type="button" className="rag-link" onClick={() => setError('')}>关闭</button>
           </div>
         )}
-        {(notice || busy) && <div className="rag-banner">{busy || notice}</div>}
+        {/* 状态提示浮在右下角，不占文档流的行高 —— 否则每保存一次正文就会上下跳一下。 */}
+        {(notice || busy) && <div className="rag-toast" role="status">{busy || notice}</div>}
 
         <div className="rag-doc">
           {!doc && (
@@ -1000,6 +1001,7 @@ const RAG_CSS = `
 .rag-seg button{border:none;background:transparent;color:inherit;padding:3px 8px;font-size:12px;cursor:pointer}
 .rag-seg button.is-on{background:rgba(47,107,255,.12)}
 .rag-banner{padding:6px 16px;font-size:12px;background:rgba(47,107,255,.08)}
+.rag-toast{position:fixed;right:24px;bottom:24px;z-index:75;padding:7px 14px;border-radius:999px;font-size:12px;background:var(--dsw-alias-bg-elevated,#fff);color:var(--dsw-alias-text-primary,#1a1a1a);border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.12));box-shadow:0 8px 24px rgba(0,0,0,.16);pointer-events:none}
 .rag-banner.is-error{background:rgba(220,38,38,.1);display:flex;justify-content:space-between}
 .rag-doc{flex:1;min-height:0;overflow:auto}
 .rag-blank{padding:60px 40px;opacity:.7}
