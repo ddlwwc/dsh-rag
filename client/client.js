@@ -12583,6 +12583,9 @@ we just don't display it in CSS instead. */
 .rag-root{--rag-rail:264px;--rag-side:300px;position:relative;display:grid;grid-template-columns:var(--rag-rail) minmax(0,1fr) var(--rag-side);height:100%;min-height:0;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-text-primary,#1a1a1a);font-size:13px}
 .rag-root *{box-sizing:border-box}
 .rag-rail,.rag-side{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.08));overflow:hidden}
+.rag-rail{grid-column:1}
+.rag-main{grid-column:2}
+.rag-side{grid-column:3}
 .rag-side{border-right:none;border-left:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.08));overflow-y:auto;padding:4px 0 24px}
 .rag-rail-head{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;padding:10px 12px 6px;min-width:0}
 .rag-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:14px}
@@ -12693,7 +12696,8 @@ we just don't display it in CSS instead. */
 }
 .rag-root.is-rail-collapsed{--rag-rail:0px}
 .rag-root.is-side-collapsed{--rag-side:0px}
-.rag-root.is-rail-collapsed .rag-rail,.rag-root.is-side-collapsed .rag-side{display:none}
+.rag-root.is-rail-collapsed .rag-rail,.rag-root.is-side-collapsed .rag-side{overflow:hidden;padding:0;border:0}
+.rag-root.is-rail-collapsed .rag-rail>*,.rag-root.is-side-collapsed .rag-side>*{visibility:hidden}
 .rag-fullscreen{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;padding-top:44px;background:var(--dsw-alias-bg-base,#fff)}
 .rag-fullscreen>.rag-root{flex:1;min-height:0}
 .rag-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:80}
