@@ -36,6 +36,7 @@ export const api = {
   doc: (id, relPath) => request('/doc?library=' + encodeURIComponent(id) + '&path=' + encodeURIComponent(relPath)),
   docStat: (id, relPath) => request('/doc/stat?library=' + encodeURIComponent(id) + '&path=' + encodeURIComponent(relPath)),
   saveDoc: (body) => request('/doc', { method: 'PUT', body: JSON.stringify(body) }),
+  saveDocBlocks: (body) => request('/doc/blocks', { method: 'POST', body: JSON.stringify(body) }),
   createDoc: (body) => request('/doc/create', { method: 'POST', body: JSON.stringify(body) }),
   moveDoc: (body) => request('/doc/move', { method: 'POST', body: JSON.stringify(body) }),
   deleteDoc: (id, relPath) => request('/doc?library=' + encodeURIComponent(id) + '&path=' + encodeURIComponent(relPath), { method: 'DELETE' }),

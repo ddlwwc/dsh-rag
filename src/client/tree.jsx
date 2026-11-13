@@ -1,5 +1,6 @@
 // 左侧库树的一行：目录可折叠、可拖拽接收，文档可拖拽移动、可勾选导出。
 import { useState } from 'react';
+import { DocIcon, FolderIcon } from './icons.jsx';
 
 export function TreeNode({ node, depth, activePath, dragging, dropTarget, selected, onToggleSelect, onOpen, onDelete, onDragStart, onDragOver, onDropEntry }) {
   const [open, setOpen] = useState(true);
@@ -23,6 +24,7 @@ export function TreeNode({ node, depth, activePath, dragging, dropTarget, select
           }}
         >
           <span className="rag-caret">{open ? '▾' : '▸'}</span>
+          <FolderIcon />
           <span className="rag-name">{node.name}</span>
         </div>
         {open && (node.children || []).map((child) => (
@@ -63,6 +65,7 @@ export function TreeNode({ node, depth, activePath, dragging, dropTarget, select
         onClick={(e) => e.stopPropagation()}
         aria-label={'选择 ' + node.name}
       />
+      <DocIcon />
       <span className="rag-name" title={node.relPath}>{node.name}</span>
       <span className="rag-row-tools" onClick={(e) => e.stopPropagation()}>
         <button type="button" onClick={() => onDelete(node.relPath)} title="删除">✕</button>

@@ -1,18 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
 import { api, errorText } from './api.js';
 import { MarkdownEditor, currentAnchor, focusBlock, resolveAnchor } from './blocknote.jsx';
 import { PromptDialog } from './dialog.jsx';
 import { TreeNode } from './tree.jsx';
 import { RAG_CSS } from './styles.js';
-import { fileToBase64, newNoteId, observeTheme, readThemeName } from './helpers.js';
+import { applyThemeVars, fileToBase64, newNoteId, observeTheme, openFullscreenWindow, readThemeName } from './helpers.js';
+import { LibraryIcon } from './icons.jsx';
 
 const SAVE_DELAY = 900;
 
-export function RagPage({ ctx, onStartRole }) {
+// 栏位折叠状态存本地：纯界面偏好，不该混进知识库数据。
+const FLAG_PREFIX = 'dsh-rag:';
+function readFlag(name) {
+  try { return localStorage.getItem(FLAG_PREFIX + name) === '1'; } catch { return false; }
+}
+function writeFlag(name, value) {
+  try { localStorage.setItem(FLAG_PREFIX + name, value ? '1' : '0'); } catch {}
+}
+
+export function RagPage({ ctx, onStartRole, onCloseFullscreen = null }) {
   const [libraries, setLibraries] = useState([]);
   const [activeId, setActiveId] = useState('');
   const [tree, setTree] = useState([]);
   const [doc, setDoc] = useState(null);
+  // 宿主缓存的块 JSON（mtime 一致才给），命中就省掉一次整篇 markdown 解析。
+  const [docBlocks, setDocBlocks] = useState(null);
   const [notes, setNotes] = useState([]);
   const [roles, setRoles] = useState([]);
   const [query, setQuery] = useState('');
@@ -36,6 +49,12 @@ export function RagPage({ ctx, onStartRole }) {
   const [rolePickFor, setRolePickFor] = useState('');
   // 窄窗口下右侧笔记栏变成抽屉，靠这个开关拉出来。
   const [sideOpen, setSideOpen] = useState(false);
+  // 左右两栏可整块收起：把编辑区让出来，状态记在本地，下次打开还是这个样子。
+  const [railCollapsed, setRailCollapsed] = useState(() => readFlag('rail-collapsed'));
+  const [sideCollapsed, setSideCollapsed] = useState(() => readFlag('side-collapsed'));
+  // 浏览器拦了新窗口时的页内兜底。
+  const [inlineFull, setInlineFull] = useState(false);
+  const fullRef = useRef(null);
 
   const [dialog, setDialog] = useState(null);
   const dialogResolve = useRef(null);
@@ -75,8 +94,47 @@ export function RagPage({ ctx, onStartRole }) {
 
   const fail = useCallback((err) => setError(errorText(err)), []);
 
+  /**
+   * 全屏：开一个独立窗口，把知识库这一页整个搬进去（不带 DSH 外壳）。
+   * 窗口被拦时退回页内全屏 —— 点了至少得有点反应。
+   */
+  const openFullscreen = useCallback(() => {
+    const existing = fullRef.current;
+    if (existing && !existing.closed) { existing.focus(); return; }
+    const win = openFullscreenWindow('知识库');
+    if (!win) {
+      setInlineFull(true);
+      toast('新窗口被浏览器拦了，已切到页内全屏');
+      return;
+    }
+    const host = win.document.createElement('div');
+    host.style.height = '100%';
+    win.document.body.appendChild(host);
+    const root = createRoot(host);
+    const close = () => {
+      try { root.unmount(); } catch {}
+      if (!win.closed) win.close();
+      if (fullRef.current === win) fullRef.current = null;
+    };
+    fullRef.current = win;
+    win.addEventListener('beforeunload', () => { if (fullRef.current === win) fullRef.current = null; });
+    root.render(<RagPage ctx={ctx} onStartRole={onStartRole} onCloseFullscreen={close} />);
+  }, [ctx, onStartRole, toast]);
+
   // 跟住宿主主题：用户切深色时编辑器要跟着切，不然白底会刺眼。
   useEffect(() => observeTheme(setThemeName), []);
+  useEffect(() => { writeFlag('rail-collapsed', railCollapsed); }, [railCollapsed]);
+  useEffect(() => { writeFlag('side-collapsed', sideCollapsed); }, [sideCollapsed]);
+  // 宿主换主题时，独立窗口里的知识库也得跟着换（那边是另一份 CSS 变量快照）。
+  useEffect(() => {
+    const win = fullRef.current;
+    if (win && !win.closed) applyThemeVars(win.document);
+  }, [themeName]);
+  // 关掉主窗口时顺手把独立窗口一起收走，不留孤儿进程。
+  useEffect(() => () => {
+    const win = fullRef.current;
+    if (win && !win.closed) win.close();
+  }, []);
 
   /**
    * 正文里贴图/拖图时由编辑器回调到这里。Host 负责落盘（七牛或本地 _assets/），
@@ -126,6 +184,7 @@ export function RagPage({ ctx, onStartRole }) {
 
   useEffect(() => {
     setDoc(null);
+    setDocBlocks(null);
     setNotes([]);
     setHits(null);
     setNoteStatus({});
@@ -191,6 +250,17 @@ export function RagPage({ ctx, onStartRole }) {
       setDoc((current) => (current && current.relPath === doc.relPath
         ? { ...current, mtimeMs: saved.saved.mtimeMs, size: saved.saved.size }
         : current));
+      // 顺手把块 JSON 回填进索引缓存：下次打开这篇就不用再解析一遍 markdown。
+      // 失败无所谓，最坏是下次多解析一次，绝不能因为它影响保存。
+      const editor = editorRef.current;
+      if (editor) {
+        void api.saveDocBlocks({
+          library: activeId,
+          path: doc.relPath,
+          mtimeMs: saved.saved.mtimeMs,
+          blocks: editor.document,
+        }).catch(() => {});
+      }
       latest.current = { markdown, dirty: false, conflict: false };
       setNotice('已保存');
       if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
@@ -235,6 +305,7 @@ export function RagPage({ ctx, onStartRole }) {
       if (seq !== openSeq.current) return;   // 用户已经点了另一篇，丢掉迟到的响应
       latest.current = { markdown: data.doc.markdown ?? '', dirty: false, conflict: false };
       setDoc(data.doc);
+      setDocBlocks(Array.isArray(data.blocks) ? data.blocks : null);
       setNotes(data.doc.notes || []);
       setDraftNote(null);
       setError('');
@@ -407,7 +478,7 @@ export function RagPage({ ctx, onStartRole }) {
     try {
       await api.deleteDoc(activeId, relPath);
       await refreshTree(activeId);
-      if (doc?.relPath === relPath) { setDoc(null); setNotes([]); }
+      if (doc?.relPath === relPath) { setDoc(null); setDocBlocks(null); setNotes([]); }
     } catch (err) {
       fail(err);
     }
@@ -552,10 +623,14 @@ export function RagPage({ ctx, onStartRole }) {
     }
   }, [askConfirm, fail]);
 
-  const filteredTree = tree;
+  const rootClass = [
+    'rag-root',
+    railCollapsed ? 'is-rail-collapsed' : '',
+    sideCollapsed ? 'is-side-collapsed' : '',
+  ].filter(Boolean).join(' ');
 
   return (
-    <div className="rag-root">
+    <div className={rootClass}>
       <style data-plugin="dsh-rag">{RAG_CSS}</style>
 
       <aside className="rag-rail">
@@ -564,6 +639,13 @@ export function RagPage({ ctx, onStartRole }) {
           <div className="rag-rail-actions">
             <button type="button" className="rag-btn rag-btn-ghost" onClick={createLibrary} title="新建知识库">＋ 新建</button>
             <button type="button" className="rag-btn rag-btn-ghost" onClick={mountLibrary} title="挂载已有目录">挂载</button>
+            <button
+              type="button"
+              className="rag-icon-btn"
+              onClick={() => setRailCollapsed(true)}
+              title="收起知识库栏"
+              aria-label="收起知识库栏"
+            >‹</button>
           </div>
         </div>
 
@@ -574,6 +656,7 @@ export function RagPage({ ctx, onStartRole }) {
               className={'rag-lib' + (library.id === activeId ? ' is-active' : '')}
               onClick={() => setActiveId(library.id)}
             >
+              <LibraryIcon />
               <span className="rag-lib-name" title={library.path}>{library.name}</span>
               <span className="rag-lib-count">{library.docCount ?? ''}</span>
               <span className="rag-lib-tools" onClick={(e) => e.stopPropagation()}>
@@ -669,7 +752,7 @@ export function RagPage({ ctx, onStartRole }) {
                 setDragging('');
               }}
             >
-              {filteredTree.map((node) => (
+              {tree.map((node) => (
                 <TreeNode
                   key={node.relPath}
                   node={node}
@@ -689,7 +772,7 @@ export function RagPage({ ctx, onStartRole }) {
                   }}
                 />
               ))}
-              {filteredTree.length === 0 && activeId && <p className="rag-empty">这个库还是空的。</p>}
+              {tree.length === 0 && activeId && <p className="rag-empty">这个库还是空的。</p>}
               {!activeId && <p className="rag-empty">选一个知识库，或新建一个。</p>}
             </div>
           </div>
@@ -718,7 +801,18 @@ export function RagPage({ ctx, onStartRole }) {
               </div>
             )}
             {doc && <button type="button" className="rag-btn" onClick={beginNote}>＋ 笔记</button>}
+            {railCollapsed && (
+              <button type="button" className="rag-btn" onClick={() => setRailCollapsed(false)} title="展开知识库栏">库栏</button>
+            )}
+            {sideCollapsed && (
+              <button type="button" className="rag-btn" onClick={() => setSideCollapsed(false)} title="展开笔记栏">笔记栏</button>
+            )}
             <button type="button" className="rag-btn rag-side-toggle" onClick={() => setSideOpen((v) => !v)} title="笔记与角色">侧栏</button>
+            {onCloseFullscreen ? (
+              <button type="button" className="rag-btn" onClick={() => onCloseFullscreen()} title="关闭这个全屏窗口">退出全屏</button>
+            ) : (
+              <button type="button" className="rag-btn" onClick={openFullscreen} title="在新窗口里看知识库（全屏）">⤢ 全屏</button>
+            )}
             {doc && <button type="button" className="rag-btn rag-btn-primary" onClick={() => flushSave(latest.current.conflict)}>保存</button>}
           </div>
         </header>
@@ -743,6 +837,7 @@ export function RagPage({ ctx, onStartRole }) {
             <MarkdownEditor
               key={`${activeId}:${doc.relPath}`}
               markdown={doc.markdown}
+              blocks={docBlocks}
               theme={themeName}
               onChange={handleChange}
               onUpload={uploadAsset}
@@ -773,6 +868,16 @@ export function RagPage({ ctx, onStartRole }) {
       </main>
 
       <aside className={'rag-side' + (sideOpen ? ' is-open' : '')}>
+        <div className="rag-side-bar">
+          <span>笔记与角色</span>
+          <button
+            type="button"
+            className="rag-icon-btn"
+            onClick={() => setSideCollapsed(true)}
+            title="收起笔记栏"
+            aria-label="收起笔记栏"
+          >›</button>
+        </div>
         <div className="rag-side-block">
           <div className="rag-side-head">
             <span>笔记</span>
@@ -863,6 +968,11 @@ export function RagPage({ ctx, onStartRole }) {
           <p className="rag-hint">点角色会开一个带它人格的新会话，并把当前文档位置带过去。</p>
         </div>
       </aside>
+      {inlineFull && (
+        <div className="rag-fullscreen">
+          <RagPage ctx={ctx} onStartRole={onStartRole} onCloseFullscreen={() => setInlineFull(false)} />
+        </div>
+      )}
       {dialog && (
         <PromptDialog
           dialog={dialog}

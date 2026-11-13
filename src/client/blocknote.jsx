@@ -8,10 +8,13 @@ import mantineCss from '@blocknote/mantine/style.css';
  * markdown → BlockNote → markdown 的桥。
  * 正文永远以 md 为准：进来先 parse，出去用 blocksToMarkdownLossy，块级 JSON 只留在内存里。
  *
+ * `blocks` 有值且与当前文件版本一致时（宿主按 mtime 校验过），直接拿它铺进编辑器，
+ * 省掉一次整篇 markdown 解析——大文档打开能明显快一截。块 JSON 本身只缓存进 sqlite。
+ *
  * `onUpload` 有值时，编辑器里粘贴/拖入的图片会交给它上传（七牛或本地 `_assets/`），
  * 返回可直接放进 markdown 的 URL。
  */
-export function MarkdownEditor({ markdown, onChange, onReady, onUpload, theme = 'light', readOnly = false }) {
+export function MarkdownEditor({ markdown, blocks, onChange, onReady, onUpload, theme = 'light', readOnly = false }) {
   const [ready, setReady] = useState(false);
   const lastLoadedRef = useRef(null);
   const uploadRef = useRef(onUpload);
@@ -32,13 +35,27 @@ export function MarkdownEditor({ markdown, onChange, onReady, onUpload, theme = 
   const readyRef = useRef(onReady);
   readyRef.current = onReady;
 
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+
   useEffect(() => {
     if (!editor) return;
     // 回声：用户打字 → onChange 把 md 写回 state → 又回到这里。内容相同就不重建块，
     // 否则每敲一个字都会重解析整篇、光标被重置。
     if (markdown === lastLoadedRef.current) return;
-    const blocks = editor.tryParseMarkdownToBlocks(markdown ?? '');
-    editor.replaceBlocks(editor.document, blocks.length > 0 ? blocks : [{ type: 'paragraph', content: '' }]);
+    const cached = Array.isArray(blocksRef.current) ? blocksRef.current : null;
+    let next = null;
+    if (cached && cached.length > 0) {
+      next = cached;
+    } else {
+      try {
+        next = editor.tryParseMarkdownToBlocks(markdown ?? '');
+      } catch (error) {
+        console.warn('[dsh-rag] markdown 解析失败，退化为空文档', error);
+        next = [];
+      }
+    }
+    editor.replaceBlocks(editor.document, next.length > 0 ? next : [{ type: 'paragraph', content: '' }]);
     lastLoadedRef.current = markdown;
     setReady(true);
     readyRef.current?.(editor);
