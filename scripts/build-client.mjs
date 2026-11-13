@@ -102,5 +102,7 @@ const wrapped = `window.__ModuleLoader__.load({
 `;
 mkdirSync(join(root, 'client'), { recursive: true });
 writeFileSync(join(root, 'client/client.js'), wrapped);
+// 想看体积构成时：RAG_METAFILE=/tmp/rag-meta.json node scripts/build-client.mjs
+if (process.env.RAG_METAFILE) writeFileSync(process.env.RAG_METAFILE, JSON.stringify(result.metafile));
 const kb = Math.round(wrapped.length / 1024);
 console.log(`client/client.js ${kb} KiB`);
