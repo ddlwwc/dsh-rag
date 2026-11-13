@@ -55,7 +55,14 @@ export const api = {
   config: () => request('/config'),
   saveConfig: (body) => request('/config', { method: 'PUT', body: JSON.stringify(body) }),
 
-  exportUrl: (id) => BASE + '/export?library=' + encodeURIComponent(id),
+  docs: (id, limit) => request('/docs?library=' + encodeURIComponent(id || '') + (limit ? '&limit=' + limit : '')),
+  upload: (body) => request('/upload', { method: 'POST', body: JSON.stringify(body) }),
+
+  exportUrl: (id, paths) => {
+    let href = '/export?library=' + encodeURIComponent(id);
+    if (paths && paths.length > 0) href += '&paths=' + encodeURIComponent(paths.join(','));
+    return BASE + href;
+  },
 };
 
 export function errorText(error) {

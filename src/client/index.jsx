@@ -102,9 +102,26 @@ export function apply(ctx) {
       () => createElement(RagPage, { ctx, onStartRole: startRole }),
     );
     yield ctx.slots.inject('sidebar.panellist', () => ctx.slots.register(
-      { name: 'sidebar.panellist', id: PANEL_ID, order: 5, label: PANEL_LABEL },
+      { name: 'sidebar.panellist', id: PANEL_ID, order: 1, label: PANEL_LABEL },
       (owner) => createElement(RagIcon, { size: owner?.size ?? 16, active: Boolean(owner?.active) }),
     ));
+  });
+
+  // `/kb` —— 在输入框里一句话回到知识库面板。DSH 没有全局命令面板，
+  // composer 的斜杠菜单就是命令面板，所以入口注册在 commandUi 上。
+  ctx.inject(['commandUi', 'layout'], (scoped) => {
+    scoped.effect(() => scoped.commandUi.register({
+      name: 'kb',
+      label: () => '打开知识库',
+      description: () => '回到知识库工作台，继续读文档或跟角色对话',
+      available: () => true,
+      ui: {
+        kind: 'action',
+        run: () => {
+          scoped.layout.selectPanel(PANEL_ID);
+        },
+      },
+    }));
   });
 }
 

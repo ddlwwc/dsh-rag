@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText } from './api.js';
-import { MarkdownEditor, currentAnchor, focusBlock } from './blocknote.jsx';
+import { MarkdownEditor, currentAnchor, focusBlock, resolveAnchor } from './blocknote.jsx';
 
 const SAVE_DELAY = 900;
 
@@ -20,6 +20,12 @@ export function RagPage({ ctx, onStartRole }) {
   const [draftNote, setDraftNote] = useState(null);
   const [dragging, setDragging] = useState('');
   const [dropTarget, setDropTarget] = useState('');
+  // 多选导出的集合；空集合时「导出」就是整库。
+  const [selected, setSelected] = useState(() => new Set());
+  // 笔记锚点在当前文档里的存活情况：只有 missing 会在笔记卡里标一行小字，绝不弹横幅。
+  const [noteStatus, setNoteStatus] = useState({});
+  const [editorReady, setEditorReady] = useState(false);
+  const [themeName, setThemeName] = useState(readThemeName);
 
   const [dialog, setDialog] = useState(null);
   const dialogResolve = useRef(null);
@@ -59,6 +65,25 @@ export function RagPage({ ctx, onStartRole }) {
 
   const fail = useCallback((err) => setError(errorText(err)), []);
 
+  // 跟住宿主主题：用户切深色时编辑器要跟着切，不然白底会刺眼。
+  useEffect(() => observeTheme(setThemeName), []);
+
+  /**
+   * 正文里贴图/拖图时由编辑器回调到这里。Host 负责落盘（七牛或本地 _assets/），
+   * 返回能直接写进 markdown 的 URL —— 客户端永远不碰 AK/SK。
+   */
+  const uploadAsset = useCallback(async (file) => {
+    if (!activeId) throw new Error('先选一个知识库再插图');
+    const contentBase64 = await fileToBase64(file);
+    const data = await api.upload({
+      library: activeId,
+      name: file.name || 'image.png',
+      mime: file.type || 'image/png',
+      contentBase64,
+    });
+    return data.url;
+  }, [activeId]);
+
   // ── 载入 ───────────────────────────────────────────────
   useEffect(() => {
     let alive = true;
@@ -93,10 +118,28 @@ export function RagPage({ ctx, onStartRole }) {
     setDoc(null);
     setNotes([]);
     setHits(null);
+    setNoteStatus({});
+    setEditorReady(false);
     latest.current = { markdown: '', dirty: false, conflict: false };
     if (!activeId) { setTree([]); return; }
     refreshTree(activeId);
   }, [activeId, refreshTree]);
+
+  /**
+   * 文档或笔记变了之后重新判一次锚点。判定失败**不提示**（用户明确要求过），
+   * 只在对应的笔记卡里标一行灰字，让用户知道这条笔记指的位置可能不对了。
+   */
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editorReady || !editor || notes.length === 0) { setNoteStatus({}); return; }
+    const next = {};
+    for (const note of notes) {
+      const { status } = resolveAnchor(editor, note.anchor);
+      if (status === 'missing') next[note.id] = 'missing';
+      else if (status === 'shifted') next[note.id] = 'shifted';
+    }
+    setNoteStatus(next);
+  }, [notes, editorReady, doc?.relPath]);
 
   // ── 保存 ───────────────────────────────────────────────
   // 从 latest 读正文，而不是从这次 render 闭包里的 doc 读。
@@ -381,28 +424,41 @@ export function RagPage({ ctx, onStartRole }) {
     void importFiles(files);
   }, [importFiles]);
 
-  const exportLibrary = useCallback(async () => {
+  const exportLibrary = useCallback(async (paths = []) => {
     if (!activeId) return;
     try {
       setBusy('打包中…');
-      const response = await fetch(api.exportUrl(activeId));
+      const response = await fetch(api.exportUrl(activeId, paths));
       if (!response.ok) throw new Error('导出失败（' + response.status + '）');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = (active?.name || 'knowledge-base') + '.zip';
+      link.download = (active?.name || 'knowledge-base') + (paths.length > 0 ? '-选中' : '') + '.zip';
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 4000);
-      toast('已导出 zip');
+      toast(paths.length > 0 ? `已导出 ${paths.length} 项` : '已导出 zip');
     } catch (err) {
       fail(err);
     } finally {
       setBusy('');
     }
   }, [activeId, active, toast, fail]);
+
+  const toggleSelect = useCallback((relPath) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(relPath)) next.delete(relPath); else next.add(relPath);
+      return next;
+    });
+  }, []);
+
+  const exportSelected = useCallback(() => {
+    if (selected.size === 0) return;
+    void exportLibrary([...selected]);
+  }, [selected, exportLibrary]);
 
   const pickRole = useCallback(async (role) => {
     try {
@@ -417,9 +473,36 @@ export function RagPage({ ctx, onStartRole }) {
 
   // 笔记锚点只在当前编辑器实例里可靠；blockId 失效时按块文本回退，仍找不到就静默不动。
   const locate = useCallback((note) => {
-    if (!doc || mode === 'source') return;
-    focusBlock(editorRef.current, note.anchor);
-  }, [doc, mode]);
+    if (!doc || mode !== 'rich') { toast('切回富文本才能定位到块'); return; }
+    const { status, placed } = focusBlock(editorRef.current, note.anchor);
+    if (!placed) toast('这块内容已经不在原位了');
+    else if (status !== 'exact') setNoteStatus((current) => ({ ...current, [note.id]: status }));
+  }, [doc, mode, toast]);
+
+  // ── 角色 ───────────────────────────────────────────────
+  const saveRole = useCallback(async (role, patch) => {
+    const next = { id: role?.id, emoji: role?.emoji, description: role?.description, ...patch };
+    try {
+      const data = await api.saveRole(next);
+      setRoles((current) => {
+        const rest = current.filter((r) => r.id !== data.role.id);
+        return [...rest, data.role].sort((a, b) => Number(b.builtin) - Number(a.builtin));
+      });
+      toast('角色已保存');
+    } catch (err) {
+      fail(err);
+    }
+  }, [toast, fail]);
+
+  const removeRole = useCallback(async (role) => {
+    if (!(await askConfirm(`删除角色「${role.name}」？已经开出去的会话不受影响。`))) return;
+    try {
+      await api.deleteRole(role.id);
+      setRoles((current) => current.filter((r) => r.id !== role.id));
+    } catch (err) {
+      fail(err);
+    }
+  }, [askConfirm, fail]);
 
   const filteredTree = tree;
 
@@ -498,7 +581,11 @@ export function RagPage({ ctx, onStartRole }) {
                 目录
                 <input type="file" multiple webkitdirectory="" directory="" onChange={onPickFolder} hidden />
               </label>
-              <button type="button" className="rag-btn rag-btn-ghost" onClick={exportLibrary} disabled={!activeId}>导出</button>
+              <button type="button" className="rag-btn rag-btn-ghost" onClick={() => exportLibrary([])} disabled={!activeId}>导出整库</button>
+              <button type="button" className="rag-btn rag-btn-ghost" onClick={exportSelected} disabled={selected.size === 0}>导出选中{selected.size > 0 ? `(${selected.size})` : ''}</button>
+              {selected.size > 0 && (
+                <button type="button" className="rag-btn rag-btn-ghost" onClick={() => setSelected(new Set())}>清空选择</button>
+              )}
             </div>
 
             <div
@@ -520,6 +607,8 @@ export function RagPage({ ctx, onStartRole }) {
                   activePath={doc?.relPath || ''}
                   dragging={dragging}
                   dropTarget={dropTarget}
+                  selected={selected}
+                  onToggleSelect={toggleSelect}
                   onOpen={openDoc}
                   onDelete={deleteEntry}
                   onDragStart={setDragging}
@@ -574,17 +663,31 @@ export function RagPage({ ctx, onStartRole }) {
             <MarkdownEditor
               key={`${activeId}:${doc.relPath}`}
               markdown={doc.markdown}
+              theme={themeName}
               onChange={handleChange}
-              onReady={(editor) => { editorRef.current = editor; }}
+              onUpload={uploadAsset}
+              onReady={(editor) => { editorRef.current = editor; setEditorReady(Boolean(editor)); }}
             />
           )}
           {doc && mode === 'source' && (
-            <textarea
-              className="rag-source"
-              value={doc.markdown}
-              onChange={(e) => handleChange(e.target.value)}
-              spellCheck={false}
-            />
+            <div className="rag-source">
+              <div className="rag-source-head">
+                <span>markdown 源码（只读）</span>
+                <button
+                  type="button"
+                  className="rag-link"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(doc.markdown || '');
+                      toast('已复制');
+                    } catch {
+                      toast('复制失败，请手动选中');
+                    }
+                  }}
+                >复制</button>
+              </div>
+              <pre className="rag-source-body">{doc.markdown}</pre>
+            </div>
           )}
         </div>
       </main>
@@ -617,9 +720,12 @@ export function RagPage({ ctx, onStartRole }) {
           <div className="rag-notes">
             {notes.map((note) => (
               <div key={note.id} className="rag-note">
-                <p className="rag-note-quote" onClick={() => locate(note)}>
+                <p className="rag-note-quote" onClick={() => locate(note)} title="点一下跳到这一块">
                   {note.anchor?.quote || '（块的笔记）'}
+                  {note.anchor?.offset > 0 ? <span className="rag-note-offset">·第 {note.anchor.offset} 字</span> : null}
                 </p>
+                {noteStatus[note.id] === 'missing' && <p className="rag-note-drift">这块内容已经变了，原位置找不到了。</p>}
+                {noteStatus[note.id] === 'shifted' && <p className="rag-note-drift">块内文字有改动，定位可能不准。</p>}
                 <p className="rag-note-text">{note.text}</p>
                 <div className="rag-note-actions">
                   <button type="button" className="rag-link" onClick={() => locate(note)}>定位</button>
@@ -643,8 +749,7 @@ export function RagPage({ ctx, onStartRole }) {
                 const instructions = await askText(`「${name}」怎么跟你说话？（提示词）`, '');
                 if (!instructions) return;
                 try {
-                  const data = await api.saveRole({ name, prompt: instructions });
-                  setRoles((current) => [...current.filter((r) => r.id !== data.role.id), data.role]);
+                  await saveRole(null, { name, prompt: instructions });
                 } catch (err) {
                   fail(err);
                 }
@@ -653,10 +758,25 @@ export function RagPage({ ctx, onStartRole }) {
           </div>
           <div className="rag-roles">
             {roles.map((role) => (
-              <button key={role.id} type="button" className="rag-role" onClick={() => pickRole(role)} title={role.description}>
-                <span className="rag-role-name">{role.name}</span>
-                <span className="rag-role-desc">{role.description}</span>
-              </button>
+              <div key={role.id} className="rag-role">
+                <button type="button" className="rag-role-open" onClick={() => pickRole(role)} title={role.description}>
+                  <span className="rag-role-name">{role.emoji ? role.emoji + ' ' : ''}{role.name}</span>
+                  <span className="rag-role-desc">{role.description}</span>
+                </button>
+                {!role.builtin && (
+                  <span className="rag-role-tools">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const prompt = await askText(`「${role.name}」的提示词`, role.prompt || '');
+                        if (prompt === null) return;
+                        await saveRole(role, { prompt });
+                      }}
+                    >提示词</button>
+                    <button type="button" onClick={() => removeRole(role)}>删除</button>
+                  </span>
+                )}
+              </div>
             ))}
             {roles.length === 0 && <p className="rag-empty">没有角色。</p>}
           </div>
@@ -716,7 +836,7 @@ function PromptDialog({ dialog, onOk, onCancel }) {
   );
 }
 
-function TreeNode({ node, depth, activePath, dragging, dropTarget, onOpen, onDelete, onDragStart, onDragOver, onDropEntry }) {
+function TreeNode({ node, depth, activePath, dragging, dropTarget, selected, onToggleSelect, onOpen, onDelete, onDragStart, onDragOver, onDropEntry }) {
   const [open, setOpen] = useState(true);
   const pad = { paddingLeft: 8 + depth * 14 };
 
@@ -748,6 +868,8 @@ function TreeNode({ node, depth, activePath, dragging, dropTarget, onOpen, onDel
             activePath={activePath}
             dragging={dragging}
             dropTarget={dropTarget}
+            selected={selected}
+            onToggleSelect={onToggleSelect}
             onOpen={onOpen}
             onDelete={onDelete}
             onDragStart={onDragStart}
@@ -768,13 +890,53 @@ function TreeNode({ node, depth, activePath, dragging, dropTarget, onOpen, onDel
       onDragEnd={() => onDragStart('')}
       onClick={() => onOpen(node.relPath)}
     >
-      <span className="rag-dot" />
+      <input
+        type="checkbox"
+        className="rag-check"
+        checked={selected?.has(node.relPath) ?? false}
+        onChange={() => onToggleSelect?.(node.relPath)}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={'选择 ' + node.name}
+      />
       <span className="rag-name" title={node.relPath}>{node.name}</span>
       <span className="rag-row-tools" onClick={(e) => e.stopPropagation()}>
         <button type="button" onClick={() => onDelete(node.relPath)} title="删除">✕</button>
       </span>
     </div>
   );
+}
+
+/** 宿主主题 → BlockNote 主题名。认不出就按浅色。 */
+function readThemeName() {
+  const root = document.documentElement;
+  const raw = (root.dataset.theme || root.dataset.colorScheme || root.className || '').toLowerCase();
+  if (raw.includes('dark')) return 'dark';
+  if (raw.includes('light')) return 'light';
+  return 'light';
+}
+
+/** 跟着宿主切主题：属性/类名变了就回调一次，返回取消订阅。 */
+function observeTheme(onChange) {
+  const root = document.documentElement;
+  const emit = () => onChange(readThemeName());
+  const observer = new MutationObserver(emit);
+  observer.observe(root, { attributes: true, attributeFilter: ['data-theme', 'data-color-scheme', 'class', 'style'] });
+  emit();
+  return () => observer.disconnect();
+}
+
+/** File → base64（不带 data: 前缀）。分块拼接，避免大图把调用栈撑爆。 */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function newNoteId() {
@@ -843,7 +1005,9 @@ const RAG_CSS = `
 .rag-blank{padding:60px 40px;opacity:.7}
 .rag-blank h2{font-size:16px;margin:0 0 8px}
 .rag-editor-shell{padding:16px 24px 120px}
-.rag-source{width:100%;height:100%;min-height:400px;border:none;outline:none;resize:none;padding:16px 24px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.6;background:transparent;color:inherit}
+.rag-source{display:flex;flex-direction:column;height:100%;min-height:0}
+.rag-source-head{display:flex;justify-content:space-between;align-items:center;padding:8px 24px;font-size:11px;opacity:.6;border-bottom:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.06))}
+.rag-source-body{margin:0;padding:16px 24px 120px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .rag-side-block{padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.06))}
 .rag-side-head{display:flex;justify-content:space-between;align-items:center;font-weight:600;margin-bottom:6px}
 .rag-notes{display:flex;flex-direction:column;gap:8px}
@@ -851,11 +1015,19 @@ const RAG_CSS = `
 .rag-note.is-draft{background:rgba(47,107,255,.05)}
 .rag-note textarea{width:100%;min-height:56px;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.12));border-radius:6px;background:transparent;color:inherit;font-size:12px;padding:6px;resize:vertical}
 .rag-note-quote{font-size:12px;opacity:.8;border-left:2px solid rgba(0,0,0,.1);padding-left:6px;margin:0;cursor:pointer}
+.rag-note-offset{opacity:.55;font-size:11px;margin-left:4px}
+.rag-note-drift{font-size:11px;margin:0;color:#b45309;opacity:.9}
+.rag-row .rag-check{margin:0 0 0 2px;opacity:0;cursor:pointer}
+.rag-row:hover .rag-check,.rag-row .rag-check:checked{opacity:.7}
 .rag-note-text{margin:0;white-space:pre-wrap}
 .rag-note-actions{display:flex;gap:8px}
 .rag-roles{display:flex;flex-direction:column;gap:6px}
-.rag-role{display:flex;flex-direction:column;gap:2px;text-align:left;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.1));background:transparent;color:inherit;border-radius:8px;padding:8px 10px;cursor:pointer}
+.rag-role{display:flex;align-items:center;gap:6px;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.1));border-radius:8px;padding:2px 4px 2px 0}
 .rag-role:hover{background:rgba(47,107,255,.06)}
+.rag-role-open{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;text-align:left;border:none;background:transparent;color:inherit;padding:6px 10px;cursor:pointer;border-radius:8px}
+.rag-role-tools{display:flex;gap:4px;padding-right:6px}
+.rag-role-tools button{border:none;background:none;color:inherit;opacity:.55;font-size:11px;cursor:pointer;padding:2px 4px}
+.rag-role-tools button:hover{opacity:1;color:var(--dsw-alias-accent,#2f6bff)}
 .rag-role-name{font-weight:600}
 .rag-role-desc{font-size:11px;opacity:.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .rag-hint{font-size:11px;opacity:.55;margin:6px 0 0}
