@@ -1,0 +1,4 @@
+# dsh-rag: 知识库工作台（markdown + BlockNote + 角色会话）
+- insert:
+    - id: rag
+      name: dsh-rag

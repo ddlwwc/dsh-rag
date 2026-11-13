@@ -1,0 +1,8 @@
+node_modules/
+.npmcache/
+.DS_Store
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+tmp/

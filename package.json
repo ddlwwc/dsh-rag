@@ -1,0 +1,66 @@
+{
+  "name": "dsh-rag",
+  "version": "0.1.0",
+  "description": "知识库工作台：本地 markdown 库的增删改查、BlockNote 编辑、笔记、批量导入导出，以及与 DSH 角色会话的无缝衔接。",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./client/client.js"
+    },
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "locale/*.json",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5",
+    "adm-zip": "^0.5.16"
+  },
+  "devDependencies": {
+    "@blocknote/core": "0.57.0",
+    "@blocknote/mantine": "0.57.0",
+    "@blocknote/react": "0.57.0",
+    "@mantine/core": "8.3.18",
+    "@mantine/hooks": "8.3.18",
+    "esbuild": "^0.25.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "knowledge-base",
+    "markdown",
+    "blocknote",
+    "知识库"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
