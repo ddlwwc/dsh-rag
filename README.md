@@ -36,6 +36,15 @@ DeepSeek Harness 的知识库插件：左侧菜单「知识库」一栏，用 Bl
 
 `<DSH_HOME>` 默认 `~/.dsh`，可用环境变量覆盖。
 
+## 界面
+
+三栏工作台：左「知识库 / 搜索 / 文档树」，中「BlockNote 富文本 + markdown 源码」，右「笔记与角色」。
+
+- 左右两栏可收起（`‹` / `›`），状态记在 `localStorage`
+- 知识库、文件夹、文档各有独立图标
+- 顶栏「⤢ 独立窗口」用系统浏览器打开 `/rag/standalone`：一个只有知识库的独立窗口（Electron 主进程禁止插件 `window.open` 建窗，所以走系统浏览器；那里没有 DSH 运行时，角色按钮改为复制提示词）
+- 窗口窄于 1080px 时栏头自动换行并给 macOS 窗口控件让位
+
 ## HTTP 接口
 
 所有接口挂在 `/rag` 前缀下，只服务 loopback 同源请求：
@@ -65,6 +74,14 @@ GET    /rag/role-context
 - `kb_list` —— 列出知识库与文档树
 - `kb_search` —— 全文检索，返回带摘录的命中
 - `kb_read` —— 读取某篇文档正文
+
+## 开发
+
+改完客户端要重新构建（宿主不构建插件）：
+
+```bash
+node scripts/build-client.mjs   # 产出 client/client.js 与 client/standalone.js
+```
 
 ## 开发
 
