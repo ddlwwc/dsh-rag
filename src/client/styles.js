@@ -45,9 +45,13 @@ export const RAG_CSS = `
 .rag-caret{width:10px;font-size:10px;opacity:.6}
 .rag-dot{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.3;margin-left:4px}
 .rag-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rag-row-tools{display:none}
-.rag-row:hover .rag-row-tools{display:block}
-.rag-row-tools button{border:none;background:none;cursor:pointer;opacity:.5;color:inherit;font-size:11px}
+.rag-hint{margin:0 10px 6px;font-size:11px;line-height:1.5;opacity:.55}
+
+.rag-menu{position:fixed;z-index:95;padding:5px;border-radius:11px;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.1));background:var(--dsw-alias-bg-elevated,#fff);box-shadow:0 12px 32px rgba(0,0,0,.16);backdrop-filter:blur(8px)}
+.rag-menu-item{display:block;width:100%;text-align:left;border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;color:inherit;padding:6px 10px;border-radius:7px}
+.rag-menu-item:hover{background:var(--dsw-alias-bg-hover,rgba(0,0,0,.06))}
+.rag-menu-item.is-danger{color:#c0392b}
+.rag-menu-sep{height:1px;margin:4px 6px;background:var(--dsw-alias-border-subtle,rgba(0,0,0,.08))}
 .rag-hits{flex:1;overflow-y:auto;padding:0 8px}
 .rag-hits-head{display:flex;justify-content:space-between;font-size:11px;opacity:.6;padding:2px 4px 6px}
 .rag-hits-tools{display:flex;gap:8px}
@@ -89,8 +93,7 @@ export const RAG_CSS = `
 .rag-note-quote{font-size:12px;opacity:.8;border-left:2px solid rgba(0,0,0,.1);padding-left:6px;margin:0;cursor:pointer}
 .rag-note-offset{opacity:.55;font-size:11px;margin-left:4px}
 .rag-note-drift{font-size:11px;margin:0;color:#b45309;opacity:.9}
-.rag-row .rag-check{margin:0 0 0 2px;opacity:0;cursor:pointer}
-.rag-row:hover .rag-check,.rag-row .rag-check:checked{opacity:.7}
+
 .rag-note-text{margin:0;white-space:pre-wrap}
 .rag-note-actions{display:flex;gap:8px}
 .rag-roles{display:flex;flex-direction:column;gap:6px}

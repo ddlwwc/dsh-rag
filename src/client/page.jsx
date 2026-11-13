@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText } from './api.js';
 import { MarkdownEditor, currentAnchor, focusBlock, resolveAnchor } from './blocknote.jsx';
 import { PromptDialog } from './dialog.jsx';
+import { ContextMenu } from './menu.jsx';
 import { TreeNode } from './tree.jsx';
 import { RAG_CSS } from './styles.js';
 import { fileToBase64, newNoteId, observeTheme, readThemeName } from './helpers.js';
@@ -37,7 +38,10 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const [dragging, setDragging] = useState('');
   const [dropTarget, setDropTarget] = useState('');
   // 多选导出的集合；空集合时「导出」就是整库。
-  const [selected, setSelected] = useState(() => new Set());
+  const [menu, setMenu] = useState(null);
+  const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
+  const pendingDirRef = useRef('');
   // 笔记锚点在当前文档里的存活情况：只有 missing 会在笔记卡里标一行小字，绝不弹横幅。
   const [noteStatus, setNoteStatus] = useState({});
   const [editorReady, setEditorReady] = useState(false);
@@ -494,14 +498,24 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     // FileList 是活对象：先拷成数组再清 value，否则 await 之后后面几个文件就取不到了。
     const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    void importFiles(files);
+    void importFiles(files, pendingDirRef.current);
   }, [importFiles]);
 
   const onPickFolder = useCallback((event) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    void importFiles(files);
+    void importFiles(files, pendingDirRef.current);
   }, [importFiles]);
+
+  const pickFilesInto = useCallback((dir) => {
+    pendingDirRef.current = dir || '';
+    fileInputRef.current?.click();
+  }, []);
+
+  const pickFolderInto = useCallback((dir) => {
+    pendingDirRef.current = dir || '';
+    folderInputRef.current?.click();
+  }, []);
 
   const exportLibrary = useCallback(async (paths = []) => {
     if (!activeId) return;
@@ -526,18 +540,65 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     }
   }, [activeId, active, toast, fail]);
 
-  const toggleSelect = useCallback((relPath) => {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(relPath)) next.delete(relPath); else next.add(relPath);
-      return next;
-    });
-  }, []);
+  const renameEntry = useCallback(async (node) => {
+    if (!activeId) return;
+    const cut = node.relPath.lastIndexOf('/');
+    const dir = cut >= 0 ? node.relPath.slice(0, cut) : '';
+    const name = await askText('重命名', node.name || node.relPath.split('/').pop());
+    if (!name) return;
+    const target = dir ? dir + '/' + name : name;
+    if (target === node.relPath) return;
+    try {
+      await api.moveDoc({ library: activeId, from: node.relPath, to: target });
+      await refreshTree(activeId);
+      if (doc?.relPath === node.relPath) await openDoc(target);
+      toast('已重命名');
+    } catch (err) {
+      fail(err);
+    }
+  }, [activeId, askText, refreshTree, doc, openDoc, toast, fail]);
 
-  const exportSelected = useCallback(() => {
-    if (selected.size === 0) return;
-    void exportLibrary([...selected]);
-  }, [selected, exportLibrary]);
+  /** 右键菜单：目录与文档的 CRUD、导入导出都在这里；空白处只有新建与导入。 */
+  const openEntryMenu = useCallback((event, node) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const items = node.type === 'dir'
+      ? [
+        { label: '新建文档', run: () => newDoc(node.relPath) },
+        { label: '新建文件夹', run: () => newFolder(node.relPath) },
+        '-',
+        { label: '导入文件…', run: () => pickFilesInto(node.relPath) },
+        { label: '导入文件夹…', run: () => pickFolderInto(node.relPath) },
+        { label: '导出此文件夹（zip）', run: () => exportLibrary([node.relPath]) },
+        '-',
+        { label: '重命名', run: () => renameEntry(node) },
+        { label: '移到回收站', danger: true, run: () => deleteEntry(node.relPath) },
+      ]
+      : [
+        { label: '打开', run: () => openDoc(node.relPath) },
+        { label: '重命名', run: () => renameEntry(node) },
+        { label: '导出这篇（zip）', run: () => exportLibrary([node.relPath]) },
+        '-',
+        { label: '移到回收站', danger: true, run: () => deleteEntry(node.relPath) },
+      ];
+    setMenu({ x: event.clientX, y: event.clientY, items });
+  }, [newDoc, newFolder, pickFilesInto, pickFolderInto, exportLibrary, renameEntry, deleteEntry, openDoc]);
+
+  const openBlankMenu = useCallback((event) => {
+    event.preventDefault();
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: '新建文档', run: () => newDoc('') },
+        { label: '新建文件夹', run: () => newFolder('') },
+        '-',
+        { label: '导入文件…', run: () => pickFilesInto('') },
+        { label: '导入文件夹…', run: () => pickFolderInto('') },
+        { label: '导出整库（zip）', run: () => exportLibrary([]) },
+      ],
+    });
+  }, [newDoc, newFolder, pickFilesInto, pickFolderInto, exportLibrary]);
 
   const pickRole = useCallback(async (role, options = {}) => {
     try {
@@ -696,26 +757,11 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
           </div>
         ) : (
           <div className="rag-tree-wrap">
-            <div className="rag-tree-actions">
-              <button type="button" className="rag-btn rag-btn-ghost" onClick={() => newDoc('')}>＋ 文档</button>
-              <button type="button" className="rag-btn rag-btn-ghost" onClick={() => newFolder('')}>＋ 文件夹</button>
-              <label className="rag-btn rag-btn-ghost">
-                导入
-                <input type="file" multiple accept=".md,.markdown,.txt" onChange={onPickFiles} hidden />
-              </label>
-              <label className="rag-btn rag-btn-ghost" title="导入整个文件夹">
-                目录
-                <input type="file" multiple webkitdirectory="" directory="" onChange={onPickFolder} hidden />
-              </label>
-              <button type="button" className="rag-btn rag-btn-ghost" onClick={() => exportLibrary([])} disabled={!activeId}>导出整库</button>
-              <button type="button" className="rag-btn rag-btn-ghost" onClick={exportSelected} disabled={selected.size === 0}>导出选中{selected.size > 0 ? `(${selected.size})` : ''}</button>
-              {selected.size > 0 && (
-                <button type="button" className="rag-btn rag-btn-ghost" onClick={() => setSelected(new Set())}>清空选择</button>
-              )}
-            </div>
+            <p className="rag-hint">右键树里的文件夹或文档可以新建、重命名、导入导出。</p>
 
             <div
               className={'rag-tree' + (dropTarget === '__root__' ? ' is-drop' : '')}
+              onContextMenu={openBlankMenu}
               onDragOver={(e) => { if (dragging) { e.preventDefault(); setDropTarget('__root__'); } }}
               onDragLeave={() => setDropTarget((t) => (t === '__root__' ? '' : t))}
               onDrop={(e) => {
@@ -733,10 +779,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
                   activePath={doc?.relPath || ''}
                   dragging={dragging}
                   dropTarget={dropTarget}
-                  selected={selected}
-                  onToggleSelect={toggleSelect}
                   onOpen={openDoc}
-                  onDelete={deleteEntry}
+                  onContextMenu={openEntryMenu}
                   onDragStart={setDragging}
                   onDragOver={setDropTarget}
                   onDropEntry={(from, toDir) => {
@@ -939,6 +983,9 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
           <p className="rag-hint">点角色会开一个带它人格的新会话，并把当前文档位置带过去。</p>
         </div>
       </aside>
+      <input ref={fileInputRef} type="file" multiple accept=".md,.markdown,.txt" onChange={onPickFiles} hidden />
+      <input ref={folderInputRef} type="file" multiple webkitdirectory="" directory="" onChange={onPickFolder} hidden />
+      <ContextMenu menu={menu} onClose={() => setMenu(null)} />
       {dialog && (
         <PromptDialog
           dialog={dialog}
