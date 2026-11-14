@@ -832,8 +832,6 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
           </div>
         ) : (
           <div className="rag-tree-wrap">
-            <p className="rag-hint">右键树里的文件夹或文档可以新建、重命名、导入导出。</p>
-
             <div
               className={'rag-tree' + (dropTarget === '__root__' ? ' is-drop' : '')}
               onContextMenu={openBlankMenu}
