@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText } from './api.js';
-import { MarkdownEditor, currentAnchor, focusBlock, notePinTops, resolveAnchor } from './blocknote.jsx';
+import { MarkdownEditor, currentAnchor, focusBlock, resolveAnchor } from './blocknote.jsx';
 import { PromptDialog } from './dialog.jsx';
 import { ContextMenu } from './menu.jsx';
 import { TreeNode } from './tree.jsx';
 import { RAG_CSS } from './styles.js';
-import { fileToBase64, formatNoteTime, newNoteId, observeTheme, readThemeName } from './helpers.js';
+import { fileToBase64, newNoteId, observeTheme, readThemeName } from './helpers.js';
 import { LibraryIcon } from './icons.jsx';
 
 const SAVE_DELAY = 900;
@@ -46,13 +46,6 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const pendingDirRef = useRef('');
   // 笔记锚点在当前文档里的存活情况：只有 missing 会在笔记卡里标一行小字，绝不弹横幅。
   const [noteStatus, setNoteStatus] = useState({});
-  // 笔记卡跟着锚点行站队：位置由行内气泡的视口坐标换算，滚动/改字时重算。
-  const [noteTops, setNoteTops] = useState({});
-  const [activeNote, setActiveNote] = useState('');
-  const [selRect, setSelRect] = useState(null);
-  const [draftTop, setDraftTop] = useState(0);
-  const notesCanvasRef = useRef(null);
-  const noteCardsRef = useRef(new Map());
   const [editorReady, setEditorReady] = useState(false);
   const [themeName, setThemeName] = useState(readThemeName);
   // 文档在别处（外部编辑器/同步工具）被改过：只在标题栏放一颗小按钮，不弹任何横幅。
@@ -319,15 +312,6 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   }, [activeId, doc, notes, fail]);
 
   const beginNote = useCallback(() => {
-    // 草稿卡也贴着选区那一行出现，跟语雀一致。
-    const canvas = notesCanvasRef.current;
-    if (canvas && selRect) {
-      const rect = canvas.getBoundingClientRect();
-      setDraftTop(Math.max(0, Math.round(selRect.top - rect.top - 6)));
-    } else {
-      setDraftTop(0);
-    }
-    setSelRect(null);
     const anchor = currentAnchor(editorRef.current);
     setDraftNote({ text: '', anchor: anchor || { blockId: '', quote: '' } });
   }, []);
@@ -350,69 +334,6 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const removeNote = useCallback(async (id) => {
     await persistNotes(notes.filter((n) => n.id !== id));
   }, [notes, persistNotes]);
-
-  /**
-   * 让每张笔记卡和它的锚点行同一水平线。
-   * 位置来源是编辑区里那个评论气泡的视口坐标：气泡在 DOM 里，块被拖动、正文换行都跟得上。
-   * 顺序冲突时往下顺延，所以多张卡不会叠在一起。
-   */
-  const layoutNoteCards = useCallback(() => {
-    const canvas = notesCanvasRef.current;
-    const editor = editorRef.current;
-    if (!canvas || !editor || notes.length === 0) {
-      setNoteTops((current) => (Object.keys(current).length ? {} : current));
-      return;
-    }
-    const pins = notePinTops(editor);
-    const canvasRect = canvas.getBoundingClientRect();
-    const editorRect = editor.prosemirrorView.dom.getBoundingClientRect();
-    const next = {};
-    let cursor = 0;
-    for (const note of notes) {
-      const pinTop = pins[note.id];
-      const anchored = typeof pinTop === 'number';
-      // 锚点行滚出编辑区，卡片跟着藏起来（跟语雀一样，右栏只留标题和计数）。
-      const hidden = !anchored || pinTop < editorRect.top - 12 || pinTop > editorRect.bottom;
-      const height = noteCardsRef.current.get(note.id)?.offsetHeight ?? 108;
-      const desired = anchored ? pinTop - canvasRect.top - 6 : cursor;
-      const top = Math.round(Math.max(cursor, Math.min(desired, Math.max(0, canvasRect.height - height - 4))));
-      next[note.id] = { top, hidden };
-      cursor = top + height + 8;
-    }
-    setNoteTops(next);
-  }, [notes]);
-
-  useEffect(() => {
-    if (!doc || mode !== 'rich' || notes.length === 0) { setNoteTops({}); return undefined; }
-    let raf = 0;
-    const schedule = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(layoutNoteCards);
-    };
-    schedule();
-    // 图片/字体加载完、用户滚正文、窗口变宽变窄都会挪动锚点行，统一重排。
-    window.addEventListener('scroll', schedule, true);
-    window.addEventListener('resize', schedule);
-    const timer = window.setInterval(schedule, 1200);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('scroll', schedule, true);
-      window.removeEventListener('resize', schedule);
-      window.clearInterval(timer);
-    };
-  }, [doc, mode, notes, editorReady, layoutNoteCards]);
-
-  /** 划词后浮出的「＋笔记」。位置来自浏览器选区，不再依赖块级光标。 */
-  const handleSelection = useCallback(() => {
-    if (!doc || mode !== 'rich') { setSelRect(null); return; }
-    const selection = window.getSelection?.();
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) { setSelRect(null); return; }
-    const anchorNode = selection.anchorNode;
-    if (!anchorNode || !editorRef.current?.prosemirrorView?.dom?.contains(anchorNode)) { setSelRect(null); return; }
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
-    if (!rect || (!rect.width && !rect.height)) { setSelRect(null); return; }
-    setSelRect({ left: rect.left + rect.width / 2, top: rect.top - 4 });
-  }, [doc, mode]);
 
   // ── 搜索 ───────────────────────────────────────────────
   useEffect(() => {
@@ -1001,14 +922,7 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
               blocks={docBlocks}
               theme={themeName}
               onChange={handleChange}
-              notes={notes}
               onUpload={uploadAsset}
-              onNoteClick={(id) => {
-                setActiveNote(id);
-                const note = notes.find((item) => item.id === id);
-                if (note) locate(note);
-              }}
-              onSelectionChange={handleSelection}
               onReady={(editor) => { editorRef.current = editor; setEditorReady(Boolean(editor)); }}
             />
           )}
@@ -1046,13 +960,13 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
             aria-label="关闭笔记栏"
           >‹</button>
         </div>
-        <div className="rag-side-block rag-notes-block">
+        <div className="rag-side-block">
           <div className="rag-side-head">
-            <span>划词评论{notes.length > 0 ? `（${notes.length}）` : ''}</span>
+            <span>笔记</span>
             {doc && <button type="button" className="rag-link" onClick={beginNote}>加一条</button>}
           </div>
           {draftNote && (
-            <div className="rag-note is-draft" style={{ top: draftTop }}>
+            <div className="rag-note is-draft">
               {draftNote.anchor?.quote && <p className="rag-note-quote">「{draftNote.anchor.quote.slice(0, 80)}」</p>}
               <textarea
                 autoFocus
@@ -1070,24 +984,13 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
               </div>
             </div>
           )}
-          <div className="rag-notes-canvas" ref={notesCanvasRef}>
+          <div className="rag-notes">
             {notes.map((note) => (
-              <article
-                key={note.id}
-                ref={(node) => {
-                  if (node) noteCardsRef.current.set(note.id, node);
-                  else noteCardsRef.current.delete(note.id);
-                }}
-                className={'rag-note' + (activeNote === note.id ? ' is-active' : '')}
-                style={{ top: noteTops[note.id]?.top ?? 0, display: noteTops[note.id]?.hidden ? 'none' : undefined }}
-                onMouseEnter={() => setActiveNote(note.id)}
-              >
-                <header className="rag-note-head">
-                  <span className="rag-note-avatar">我</span>
-                  <span className="rag-note-name">我</span>
-                  <time className="rag-note-time">{formatNoteTime(note.createdAt)}</time>
-                </header>
-                {note.anchor?.highlight && <p className="rag-note-quote">「{note.anchor.highlight}」</p>}
+              <div key={note.id} className="rag-note">
+                <p className="rag-note-quote" onClick={() => locate(note)} title="点一下跳到这一块">
+                  {note.anchor?.quote || '（块的笔记）'}
+                  {note.anchor?.offset > 0 ? <span className="rag-note-offset">·第 {note.anchor.offset} 字</span> : null}
+                </p>
                 {noteStatus[note.id] === 'missing' && <p className="rag-note-drift">这块内容已经变了，原位置找不到了。</p>}
                 {noteStatus[note.id] === 'shifted' && <p className="rag-note-drift">块内文字有改动，定位可能不准。</p>}
                 <p className="rag-note-text">{note.text}</p>
@@ -1095,15 +998,13 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
                   <button type="button" className="rag-link" onClick={() => locate(note)}>定位</button>
                   <button type="button" className="rag-link" onClick={() => removeNote(note.id)}>删除</button>
                 </div>
-              </article>
+              </div>
             ))}
-            {notes.length === 0 && !draftNote && (
-              <p className="rag-empty">{doc ? '选中正文里的文字，点「＋ 笔记」加一条。' : '打开一篇文档再加笔记。'}</p>
-            )}
+            {notes.length === 0 && !draftNote && <p className="rag-empty">{doc ? '这篇还没有笔记。' : '打开一篇文档再加笔记。'}</p>}
           </div>
         </div>
 
-        <div className="rag-side-block rag-roles-block">
+        <div className="rag-side-block">
           <div className="rag-side-head">
             <span>角色</span>
             <button
@@ -1149,17 +1050,6 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
           <p className="rag-hint">点角色会开一个带它人格的新会话，并把当前文档位置带过去。</p>
         </div>
       </aside>
-
-      {/* 划词后就地浮出「＋ 笔记」，不必再跑到右栏点「加一条」。 */}
-      {selRect && (
-        <button
-          type="button"
-          className="rag-sel-add"
-          style={{ left: selRect.left, top: selRect.top }}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={beginNote}
-        >＋ 笔记</button>
-      )}
       <input ref={fileInputRef} type="file" multiple accept=".md,.markdown,.txt" onChange={onPickFiles} hidden />
       <input ref={folderInputRef} type="file" multiple webkitdirectory="" directory="" onChange={onPickFolder} hidden />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
