@@ -29,9 +29,6 @@ export const RAG_CSS = `
 .rag-lib.is-active{background:rgba(47,107,255,.1)}
 .rag-lib-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rag-lib-count{font-size:11px;opacity:.5}
-.rag-lib-tools{display:none;gap:2px}
-.rag-lib:hover .rag-lib-tools{display:flex}
-.rag-lib-tools button{border:none;background:none;cursor:pointer;opacity:.6;font-size:11px;padding:0 2px;color:inherit}
 .rag-search{padding:6px 10px}
 .rag-search input{width:100%;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.12));background:transparent;color:inherit;border-radius:6px;padding:5px 8px;font-size:12px}
 .rag-tree-actions{display:flex;flex-wrap:wrap;gap:2px;padding:0 8px 6px}

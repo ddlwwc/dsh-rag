@@ -523,17 +523,17 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     folderInputRef.current?.click();
   }, []);
 
-  const exportLibrary = useCallback(async (paths = []) => {
-    if (!activeId) return;
+  const exportLibraryOf = useCallback(async (library, paths = []) => {
+    if (!library) return;
     try {
       setBusy('打包中…');
-      const response = await fetch(api.exportUrl(activeId, paths));
+      const response = await fetch(api.exportUrl(library.id, paths));
       if (!response.ok) throw new Error('导出失败（' + response.status + '）');
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = (active?.name || 'knowledge-base') + (paths.length > 0 ? '-选中' : '') + '.zip';
+      link.download = (library.name || 'knowledge-base') + (paths.length > 0 ? '-部分' : '') + '.zip';
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -544,7 +544,46 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     } finally {
       setBusy('');
     }
-  }, [activeId, active, toast, fail]);
+  }, [toast, fail]);
+
+  const exportLibrary = useCallback((paths = []) => {
+    if (!active) return;
+    return exportLibraryOf(active, paths);
+  }, [active, exportLibraryOf]);
+
+  /** 库行右键：CRUD 都在这里，行内不再挂按钮。 */
+  const openLibraryMenu = useCallback((event, library) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: '打开这个库', run: () => setActiveId(library.id) },
+        { label: '重命名', run: () => renameLibrary(library) },
+        { label: '导出整库（zip）', run: () => { setActiveId(library.id); void exportLibraryOf(library, []); } },
+        '-',
+        {
+          label: library.kind === 'mounted' ? '取消挂载' : '删除知识库（含文件）',
+          danger: true,
+          run: () => removeLibrary(library),
+        },
+      ],
+    });
+  }, [renameLibrary, removeLibrary, exportLibraryOf]);
+
+  const openLibsBlankMenu = useCallback((event) => {
+    event.preventDefault();
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: '新建知识库', run: () => void createLibrary() },
+        { label: '挂载已有目录…', run: () => void mountLibrary() },
+      ],
+    });
+  }, [createLibrary, mountLibrary]);
+
 
   const renameEntry = useCallback(async (node) => {
     if (!activeId) return;
@@ -691,13 +730,9 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
       <aside className="rag-rail">
         <div className="rag-rail-head">
           <span className="rag-title">知识库</span>
-          <div className="rag-rail-actions">
-            <button type="button" className="rag-btn rag-btn-ghost" onClick={createLibrary} title="新建知识库">＋ 新建</button>
-            <button type="button" className="rag-btn rag-btn-ghost" onClick={mountLibrary} title="挂载已有目录">挂载</button>
-          </div>
         </div>
 
-        <div className="rag-libs">
+        <div className="rag-libs" onContextMenu={openLibsBlankMenu}>
           {libraries.map((library) => (
             <div
               key={library.id}
@@ -727,17 +762,14 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
                 setLibDropTarget('');
                 void reorderLibraries(fromId, library.id);
               }}
+              onContextMenu={(e) => openLibraryMenu(e, library)}
             >
               <LibraryIcon />
               <span className="rag-lib-name" title={library.path}>{library.name}</span>
               <span className="rag-lib-count">{library.docCount ?? ''}</span>
-              <span className="rag-lib-tools" onClick={(e) => e.stopPropagation()}>
-                <button type="button" onClick={() => renameLibrary(library)} title="改名">✎</button>
-                <button type="button" onClick={() => removeLibrary(library)} title="删除">✕</button>
-              </span>
             </div>
           ))}
-          {libraries.length === 0 && <p className="rag-empty">还没有知识库，点「＋ 新建」。</p>}
+          {libraries.length === 0 && <p className="rag-empty">右键这里可以新建或挂载知识库。</p>}
         </div>
 
         <div className="rag-search">
