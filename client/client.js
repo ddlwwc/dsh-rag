@@ -12693,7 +12693,6 @@ we just don't display it in CSS instead. */
 .rag-edge-toggle:hover{opacity:1;background:var(--dsw-alias-bg-hover,rgba(0,0,0,.06))}
 .rag-edge-toggle.is-left{left:calc(var(--rag-rail) - 8px)}
 .rag-edge-toggle.is-right{right:calc(var(--rag-side) - 8px)}
-.rag-root.is-rail-collapsed .rag-edge-toggle.is-left{left:2px}
 .rag-root.is-side-collapsed .rag-edge-toggle.is-right{right:2px}
 @media (max-width: 1080px){
   .rag-root{--rag-rail:200px;grid-template-columns:var(--rag-rail) minmax(0,1fr)}
@@ -12708,7 +12707,8 @@ we just don't display it in CSS instead. */
   .rag-root{--rag-rail:0px;grid-template-columns:minmax(0,1fr)}
   .rag-rail{display:none}
 }
-.rag-root.is-rail-collapsed{--rag-rail:0px}
+/* \u6536\u8D77\u77E5\u8BC6\u5E93\u680F\u53EA\u9690\u85CF\u5185\u5BB9\uFF0C\u6805\u683C\u5217\u5BBD\u4FDD\u6301\u4E0D\u53D8\uFF1A\u6B63\u6587\u4E0D\u4F1A\u8DDF\u7740\u5F80\u5DE6\u8DF3\u3002 */
+.rag-root.is-rail-collapsed{--rag-rail:264px}
 .rag-root.is-side-collapsed{--rag-side:0px}
 .rag-root.is-rail-collapsed .rag-rail,.rag-root.is-side-collapsed .rag-side{overflow:hidden;padding:0;border:0}
 .rag-root.is-rail-collapsed .rag-rail>*,.rag-root.is-side-collapsed .rag-side>*{visibility:hidden}
