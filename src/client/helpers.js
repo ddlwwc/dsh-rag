@@ -40,3 +40,16 @@ export function newNoteId() {
 }
 
 
+
+/** 笔记卡上的时间：今天只显示时分，其他显示月-日 时分。 */
+export function formatNoteTime(stamp) {
+  const date = new Date(Number(stamp) || Date.now());
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  return sameDay ? `今天 ${clock}` : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
+}
