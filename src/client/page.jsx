@@ -98,6 +98,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const composerRef = useRef(null);
   const imageInputRef = useRef(null);
   const cardRefs = useRef(new Map());
+  const lastHeightsRef = useRef({});
+  const layoutRerunRef = useRef(0);
   const trackRef = useRef(null);
   const saveTimer = useRef(null);
   const noticeTimer = useRef(null);
@@ -367,9 +369,12 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
 
     // 卡片一律不许互相压：所有卡片同一层，位置有冲突就往下让位（保持「贴着锚点行」的起点）。
     items.sort((a, b) => a.y - b.y);
+    const usedHeights = {};
     let cursor = 0;
     for (const item of items) {
-      const height = cardRefs.current.get(item.id)?.offsetHeight || 76;
+      // 首帧还没有 DOM，量不到高度就用保守估计；渲染完再按真实高度重排一次（下面那段）。
+      const height = cardRefs.current.get(item.id)?.offsetHeight || 140;
+      usedHeights[item.id] = height;
       const y = Math.max(item.y, cursor);
       tops[item.id] = Math.round(y);
       cursor = y + height + 8;
@@ -382,6 +387,21 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
         ? current
         : { tops, visible, height }
     ));
+
+    // 卡片高度要等渲染后才知道。第一次布局用的是估计值，量到真实高度后必须再排一次，
+    // 否则新卡片（真高 ~180）只让出 140，旧卡片会压上来。最多连跑 3 帧防抖动死循环。
+    const measured = {};
+    for (const id of Object.keys(usedHeights)) measured[id] = cardRefs.current.get(id)?.offsetHeight || 0;
+    if (JSON.stringify(measured) !== JSON.stringify(lastHeightsRef.current)) {
+      lastHeightsRef.current = measured;
+      if (layoutRerunRef.current < 3) {
+        layoutRerunRef.current += 1;
+        requestAnimationFrame(() => {
+          layoutRerunRef.current = Math.max(0, layoutRerunRef.current - 1);
+          layoutAnnotations();
+        });
+      }
+    }
   }, [notes]);
 
   // 评论列表变了：推给编辑器画高亮（打字时不能重跑，否则每敲一个字都会空转一次事务）。
