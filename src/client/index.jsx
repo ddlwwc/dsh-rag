@@ -3,8 +3,41 @@
 // 两处挂载：main 面板（三栏工作台）+ sidebar.panellist 的一行（「知识库」）。
 // 顺序有讲究：先 register main，再 register 侧栏行，否则 layout 会因为
 // main panel 未注册而拒绝选中。
-import { createElement } from 'react';
+import { Component, createElement } from 'react';
 import { RagPage } from './page.jsx';
+
+/** 把客户端异常送回宿主，写进 <dataDir>/debug.log —— 桌面端不打运行时日志，这是唯一能查的通道。 */
+function report(kind, error, info) {
+  try {
+    console.error('[dsh-rag]', message, info, stack);
+  } catch {
+    // 上报本身失败就算了
+  }
+}
+
+/** 知识库页面的错误兜底：宁可显示一段红字，也别让用户对着空白页猜。 */
+class RagBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    report('render', error, info?.componentStack);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return createElement('div', { style: { padding: 16, fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap' } },
+      createElement('strong', null, '知识库页面出错了：'),
+      createElement('div', null, String(this.state.error?.message ?? this.state.error)),
+      createElement('pre', { style: { opacity: 0.7, whiteSpace: 'pre-wrap', fontSize: 11 } }, String(this.state.error?.stack ?? '')));
+  }
+}
 
 const PANEL_ID = 'rag';
 const PANEL_LABEL = '知识库';
@@ -84,6 +117,11 @@ async function ensureChatWorkspace(ctx, { presetId, prompt }) {
 }
 
 export function apply(ctx) {
+  if (typeof window !== 'undefined' && !window.__dshRagErrorHook) {
+    window.__dshRagErrorHook = true;
+    window.addEventListener('error', (event) => report('window-error', event.error || event.message));
+    window.addEventListener('unhandledrejection', (event) => report('rejection', event.reason));
+  }
   // 角色卡连点时不能把参数挂在函数属性上（后者会覆盖前者，A 的提示词配 B 的人格），显式传参。
   const startRole = (data) => {
     Promise.resolve()
@@ -99,7 +137,7 @@ export function apply(ctx) {
   ctx.slots.inject('main', function* () {
     yield ctx.slots.register(
       { name: 'main', key: PANEL_ID },
-      () => createElement(RagPage, { ctx, onStartRole: startRole }),
+      () => createElement(RagBoundary, null, createElement(RagPage, { ctx, onStartRole: startRole })),
     );
     yield ctx.slots.inject('sidebar.panellist', () => ctx.slots.register(
       { name: 'sidebar.panellist', id: PANEL_ID, order: 1, label: PANEL_LABEL },

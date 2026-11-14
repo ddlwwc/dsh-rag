@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText } from './api.js';
-import { MarkdownEditor, currentAnchor, focusBlock, resolveAnchor } from './blocknote.jsx';
+import {
+  MarkdownEditor, anchorGeometry, currentAnchor, focusBlock, refreshAnnotations, resolveAnchor,
+  selectionAnchor, setAnnotationNotes,
+} from './blocknote.jsx';
+import { Composer, NoteCard } from './comments.jsx';
 import { PromptDialog } from './dialog.jsx';
 import { ContextMenu } from './menu.jsx';
 import { TreeNode } from './tree.jsx';
@@ -34,7 +38,12 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [draftNote, setDraftNote] = useState(null);
+  // 划词评论：选完字后右栏出现输入框（不抢焦点、不滚右栏）；提交后变成一张按行定位的卡片。
+  const [composer, setComposer] = useState(null);
+  // 卡片在右栏里的纵坐标（相对正文内容顶部），以及是否还在可视区里。
+  const [annLayout, setAnnLayout] = useState({ tops: {}, visible: {}, height: 0 });
+  const imageSinkRef = useRef(null);
+  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [dragging, setDragging] = useState('');
   const [dropTarget, setDropTarget] = useState('');
   // 多选导出的集合；空集合时「导出」就是整库。
@@ -55,8 +64,10 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   // 窄窗口下右侧笔记栏变成抽屉，靠这个开关拉出来。
   const [sideOpen, setSideOpen] = useState(false);
   // 左右两栏可整块收起：把编辑区让出来，状态记在本地，下次打开还是这个样子。
-  const [railCollapsed, setRailCollapsed] = useState(() => readFlag('rail-collapsed'));
-  const [sideCollapsed, setSideCollapsed] = useState(() => readFlag('side-collapsed'));
+  // 独立窗口里两栏一律先展开：localStorage 是同一个源，主窗口收起来的栏会把这个窗口也带塌，
+  // 用户看到的就是「右边评论栏不见了」。
+  const [railCollapsed, setRailCollapsed] = useState(() => !standalone && readFlag('rail-collapsed'));
+  const [sideCollapsed, setSideCollapsed] = useState(() => !standalone && readFlag('side-collapsed'));
 
   const [dialog, setDialog] = useState(null);
   const dialogResolve = useRef(null);
@@ -79,6 +90,11 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const askConfirm = useCallback((title) => ask({ kind: 'confirm', title }), [ask]);
 
   const editorRef = useRef(null);
+  const docRef = useRef(null);
+  const composerRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const cardRefs = useRef(new Map());
+  const trackRef = useRef(null);
   const saveTimer = useRef(null);
   const noticeTimer = useRef(null);
   const openSeq = useRef(0);
@@ -112,8 +128,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
 
   // 跟住宿主主题：用户切深色时编辑器要跟着切，不然白底会刺眼。
   useEffect(() => observeTheme(setThemeName), []);
-  useEffect(() => { writeFlag('rail-collapsed', railCollapsed); }, [railCollapsed]);
-  useEffect(() => { writeFlag('side-collapsed', sideCollapsed); }, [sideCollapsed]);
+  useEffect(() => { if (!standalone) writeFlag('rail-collapsed', railCollapsed); }, [railCollapsed, standalone]);
+  useEffect(() => { if (!standalone) writeFlag('side-collapsed', sideCollapsed); }, [sideCollapsed, standalone]);
 
   /**
    * 正文里贴图/拖图时由编辑器回调到这里。Host 负责落盘（七牛或本地 _assets/），
@@ -286,7 +302,7 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
       setDoc(data.doc);
       setDocBlocks(Array.isArray(data.blocks) ? data.blocks : null);
       setNotes(data.doc.notes || []);
-      setDraftNote(null);
+      setComposer(null);
       setError('');
       setExternal(false);
     } catch (err) {
@@ -296,7 +312,7 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     }
   }, [activeId, doSave, fail]);
 
-  // ── 笔记 ───────────────────────────────────────────────
+  // ── 划词评论 ───────────────────────────────────────────
   const persistNotes = useCallback(async (next) => {
     if (!activeId || !doc) return false;
     const previous = notes;
@@ -311,29 +327,177 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     }
   }, [activeId, doc, notes, fail]);
 
-  const beginNote = useCallback(() => {
-    const anchor = currentAnchor(editorRef.current);
-    setDraftNote({ text: '', anchor: anchor || { blockId: '', quote: '' } });
-  }, []);
+  /**
+   * 把评论卡片按「锚点那一段文字」的行位置排进右栏。
+   * top 用正文内容坐标（正文滚动时不变），可见性单独判断：那一段滚出可视区，卡片就隐藏。
+   */
+  // 输入框的锚点单独走 ref：打字时不能让重排函数换身份，否则每敲一个字都要量一遍卡片高度。
+  const composerAnchorRef = useRef(null);
+  const composerKey = composer ? `${composer.anchor.blockId}:${composer.anchor.start}` : '';
 
-  const commitNote = useCallback(async () => {
-    if (!draftNote || !draftNote.text.trim()) {
-      setDraftNote(null);
+  const layoutAnnotations = useCallback(() => {
+    const editor = editorRef.current;
+    const scroller = docRef.current;
+    if (!editor || !scroller) {
+      setAnnLayout({ tops: {}, visible: {}, height: 0 });
       return;
     }
-    const note = {
-      id: newNoteId(),
-      text: draftNote.text.trim(),
-      anchor: draftNote.anchor,
-      createdAt: Date.now(),
+    const box = scroller.getBoundingClientRect();
+    // 卡片是放在右栏轨道里的绝对定位元素，坐标系原点必须是轨道顶部，而不是编辑器顶部：
+    // 右栏有自己的标题条，两者差几十像素，直接用编辑器坐标会让卡片整体往上跑。
+    const track = trackRef.current;
+    const trackOrigin = track ? track.getBoundingClientRect().top - track.scrollTop : box.top;
+    const tops = {};
+    const visible = {};
+    const items = [];
+    const push = (id, anchor) => {
+      const geometry = anchorGeometry(editor, anchor);
+      if (!geometry) { visible[id] = false; return; }
+      const onScreen = geometry.docTop >= box.top - 12 && geometry.docTop <= box.bottom - 24;
+      visible[id] = onScreen;
+      if (onScreen) items.push({ id, y: geometry.docTop - trackOrigin });
     };
-    setDraftNote(null);
-    if (await persistNotes([...notes, note])) toast('笔记已加');
-  }, [draftNote, notes, persistNotes, toast]);
+    for (const note of notes) push(note.id, note.anchor);
+    if (composerAnchorRef.current) push('__composer__', composerAnchorRef.current);
 
-  const removeNote = useCallback(async (id) => {
-    await persistNotes(notes.filter((n) => n.id !== id));
+    items.sort((a, b) => a.y - b.y);
+    let cursor = 0;
+    for (const item of items) {
+      const height = cardRefs.current.get(item.id)?.offsetHeight || 76;
+      const y = Math.max(item.y, cursor);
+      tops[item.id] = Math.round(y);
+      cursor = y + height + 8;
+    }
+    const height = Math.max(cursor + 8, box.height - 40, track?.clientHeight ?? 0);
+    setAnnLayout((current) => (
+      JSON.stringify(current.tops) === JSON.stringify(tops)
+      && JSON.stringify(current.visible) === JSON.stringify(visible)
+      && Math.abs(current.height - height) < 2
+        ? current
+        : { tops, visible, height }
+    ));
+  }, [notes]);
+
+  // 评论列表变了：推给编辑器画高亮（打字时不能重跑，否则每敲一个字都会空转一次事务）。
+  useEffect(() => {
+    setAnnotationNotes(notes);
+    refreshAnnotations(editorRef.current);
+  }, [notes, editorReady, doc?.relPath]);
+
+  useEffect(() => { composerAnchorRef.current = composer?.anchor ?? null; }, [composerKey]);
+
+  // 位置重排：评论变了、输入框出现/消失、换文档才需要。
+  useEffect(() => { layoutAnnotations(); }, [layoutAnnotations, editorReady, doc?.relPath, composerKey]);
+
+  // 正文滚动 / 窗口缩放：只重算可见性与位置，不碰正文。
+  useEffect(() => {
+    const scroller = docRef.current;
+    if (!scroller) return;
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; layoutAnnotations(); });
+    };
+    scroller.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      scroller.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [layoutAnnotations, doc?.relPath, editorReady]);
+
+  /** 划词 → 右栏出现输入框；清掉选区时，没写字的输入框自己收起来。 */
+  const onSelect = useCallback((anchor) => {
+    // 窄窗口下右栏是抽屉：划词后把它拉出来，否则输入框看不见。
+    if (anchor && typeof window !== 'undefined' && window.innerWidth <= 1080) setSideOpen(true);
+    setComposer((current) => {
+      if (!anchor) return current && !current.text.trim() ? null : current;
+      const previous = current?.anchor;
+      if (previous && previous.blockId === anchor.blockId && previous.start === anchor.start
+        && previous.quote === anchor.quote) return current;
+      return { anchor, text: '' };
+    });
+  }, []);
+
+  const beginNote = useCallback(() => {
+    const editor = editorRef.current;
+    const anchor = selectionAnchor(editor) || currentAnchor(editor);
+    if (!anchor) { toast('先把光标放进正文里'); return; }
+    setComposer({ anchor, text: '' });
+  }, [toast]);
+
+  const commitNote = useCallback(async () => {
+    if (!composer) return;
+    const text = composer.text.trim();
+    if (!text) { setComposer(null); return; }
+    const note = { id: newNoteId(), text, anchor: composer.anchor, createdAt: Date.now(), replies: [] };
+    setComposer(null);
+    if (await persistNotes([...notes, note])) toast('评论已加');
+  }, [composer, notes, persistNotes, toast]);
+
+  const removeNote = useCallback(async (note) => {
+    if (!(await askConfirm('删掉这条评论？'))) return;
+    await persistNotes(notes.filter((n) => n.id !== note.id));
+  }, [notes, persistNotes, askConfirm]);
+
+  const editNote = useCallback(async (note, text) => {
+    if (!text) return;
+    await persistNotes(notes.map((n) => (n.id === note.id ? { ...n, text } : n)));
   }, [notes, persistNotes]);
+
+  const addReply = useCallback(async (note, text) => {
+    const body = String(text || '').trim();
+    if (!body) return;
+    const floor = { id: newNoteId(), text: body, createdAt: Date.now() };
+    await persistNotes(notes.map((n) => (n.id === note.id ? { ...n, replies: [...(n.replies || []), floor] } : n)));
+  }, [notes, persistNotes]);
+
+  /** 评论输入框里的轻格式：把选中的文字包成 markdown，或插入图片/表情。 */
+  const formatComposer = useCallback((kind, argument) => {
+    const el = composerRef.current;
+    setComposer((current) => {
+      if (!current) return current;
+      const text = current.text || '';
+      const start = el?.selectionStart ?? text.length;
+      const end = el?.selectionEnd ?? text.length;
+      const selected = text.slice(start, end);
+      const wrap = (left, right) => text.slice(0, start) + left + (selected || '文字') + right + text.slice(end);
+      let next = text;
+      if (kind === 'bold') next = wrap('**', '**');
+      else if (kind === 'italic') next = wrap('*', '*');
+      else if (kind === 'code') next = wrap('`', '`');
+      else if (kind === 'link') next = wrap('[', '](https://)');
+      else if (kind === 'bullet') next = text.slice(0, start) + '- ' + text.slice(start);
+      else if (kind === 'ordered') next = text.slice(0, start) + '1. ' + text.slice(start);
+      else if (kind === 'emoji') next = text.slice(0, start) + (argument || '🙂') + text.slice(end);
+      return { ...current, text: next };
+    });
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const at = el.value.length;
+      try { el.setSelectionRange(at, at); } catch {}
+    });
+  }, []);
+
+  /** 评论里的图片走和正文同一套上传：配了七牛就走七牛，否则落库里的 _assets/。 */
+  const uploadCommentImage = useCallback((file) => {
+    if (!file || !activeId) return;
+    void fileToBase64(file)
+      .then((contentBase64) => api.upload({
+        library: activeId,
+        name: file.name || 'image.png',
+        mime: file.type || 'image/png',
+        contentBase64,
+      }))
+      .then((data) => {
+        const snippet = `\n![${file.name || '图片'}](${data.url})\n`;
+        const sink = imageSinkRef.current;
+        if (sink) sink(snippet);
+      })
+      .catch(fail);
+  }, [activeId, fail, formatComposer]);
 
   // ── 搜索 ───────────────────────────────────────────────
   useEffect(() => {
@@ -621,6 +785,7 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
       ]
       : [
         { label: '打开', run: () => openDoc(node.relPath) },
+        { label: '用角色谈这篇…', run: () => setRoleMenuOpen(true) },
         { label: '重命名', run: () => renameEntry(node) },
         { label: '导出这篇（zip）', run: () => exportLibrary([node.relPath]) },
         '-',
@@ -669,13 +834,18 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     await openDoc(doc.relPath);
   }, [doc, askConfirm, openDoc]);
 
-  // 笔记锚点只在当前编辑器实例里可靠；blockId 失效时按块文本回退，仍找不到就静默不动。
+  // 锚点只在当前编辑器实例里可靠；blockId 失效时按文字回退，仍找不到就静默不动。
   const locate = useCallback((note) => {
-    if (!doc || mode !== 'rich') { toast('切回富文本才能定位到块'); return; }
+    if (!doc || mode !== 'rich') { toast('切回富文本才能定位'); return; }
     const { status, placed } = focusBlock(editorRef.current, note.anchor);
-    if (!placed) toast('这块内容已经不在原位了');
-    else if (status !== 'exact') setNoteStatus((current) => ({ ...current, [note.id]: status }));
+    if (!placed) toast('这段文字已经不在原位了');
+    if (status !== 'exact') setNoteStatus((current) => ({ ...current, [note.id]: status }));
   }, [doc, mode, toast]);
+
+  /** 点正文里的高亮 → 把右栏对应的评论卡滚进视野。 */
+  const focusAnnotation = useCallback((id) => {
+    cardRefs.current.get(id)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, []);
 
   // ── 角色 ───────────────────────────────────────────────
   const saveRole = useCallback(async (role, patch) => {
@@ -890,8 +1060,29 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
                 <button type="button" className={mode === 'source' ? 'is-on' : ''} onClick={() => setMode('source')}>源码</button>
               </div>
             )}
-            {doc && <button type="button" className="rag-btn" onClick={beginNote}>＋ 笔记</button>}
-            <button type="button" className="rag-btn rag-side-toggle" onClick={() => setSideOpen((v) => !v)} title="笔记与角色">侧栏</button>
+            {doc && <button type="button" className="rag-btn" onClick={beginNote} title="在光标处写一条评论">＋ 评论</button>}
+            <span className="rag-role-menu">
+              <button
+                type="button"
+                className="rag-btn"
+                onClick={() => setRoleMenuOpen((v) => !v)}
+                title="用角色（导师/面试官/调研）打开这篇文档"
+              >角色</button>
+              {roleMenuOpen && (
+                <span className="rag-role-pop">
+                  {roles.map((role) => (
+                    <button
+                      key={role.id}
+                      type="button"
+                      className="rag-role-chip"
+                      onClick={() => { setRoleMenuOpen(false); pickRole(role); }}
+                    >{role.emoji ? role.emoji + ' ' : ''}{role.name}</button>
+                  ))}
+                  {roles.length === 0 && <span className="rag-empty">还没有角色。</span>}
+                </span>
+              )}
+            </span>
+            <button type="button" className="rag-btn rag-side-toggle" onClick={() => setSideOpen((v) => !v)} title="评论栏">评论栏</button>
             {!standalone && (
               <button type="button" className="rag-btn" onClick={openFullscreen} title="在独立窗口（系统浏览器）里打开知识库">⤢ 独立窗口</button>
             )}
@@ -908,7 +1099,7 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
         {/* 状态提示浮在右下角，不占文档流的行高 —— 否则每保存一次正文就会上下跳一下。 */}
         {(notice || busy) && <div className="rag-toast" role="status">{busy || notice}</div>}
 
-        <div className="rag-doc">
+        <div className="rag-doc" ref={docRef}>
           {!doc && (
             <div className="rag-blank">
               <h2>选一篇文档开始</h2>
@@ -923,6 +1114,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
               theme={themeName}
               onChange={handleChange}
               onUpload={uploadAsset}
+              onSelect={onSelect}
+              onAnnotationClick={focusAnnotation}
               onReady={(editor) => { editorRef.current = editor; setEditorReady(Boolean(editor)); }}
             />
           )}
@@ -951,105 +1144,77 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
 
       <aside className={'rag-side' + (sideOpen ? ' is-open' : '')}>
         <div className="rag-side-bar">
-          <span>笔记与角色</span>
+          <span>划词评论（{notes.length}）</span>
           <button
             type="button"
             className="rag-icon-btn rag-drawer-close"
             onClick={() => setSideOpen(false)}
-            title="关闭笔记栏"
-            aria-label="关闭笔记栏"
+            title="关闭评论栏"
+            aria-label="关闭评论栏"
           >‹</button>
         </div>
-        <div className="rag-side-block">
-          <div className="rag-side-head">
-            <span>笔记</span>
-            {doc && <button type="button" className="rag-link" onClick={beginNote}>加一条</button>}
-          </div>
-          {draftNote && (
-            <div className="rag-note is-draft">
-              {draftNote.anchor?.quote && <p className="rag-note-quote">「{draftNote.anchor.quote.slice(0, 80)}」</p>}
-              <textarea
-                autoFocus
-                value={draftNote.text}
-                placeholder="写点什么…（⌘↩ 保存）"
-                onChange={(e) => setDraftNote({ ...draftNote, text: e.target.value })}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') commitNote();
-                  if (e.key === 'Escape') setDraftNote(null);
+        <div className="rag-ann-scroll">
+          <div className="rag-ann-track" style={{ height: annLayout.height ? `${annLayout.height}px` : '100%' }}>
+            {composer && annLayout.tops.__composer__ != null && annLayout.visible.__composer__ !== false && (
+              <div
+                className="rag-card-slot is-composer"
+                style={{ top: annLayout.tops.__composer__ }}
+                ref={(node) => { if (node) cardRefs.current.set('__composer__', node); }}
+              >
+                {composer.anchor?.quote && <p className="rag-card-quote">「{composer.anchor.quote.slice(0, 80)}」</p>}
+                <Composer
+                  inputRef={composerRef}
+                  value={composer.text}
+                  onChange={(text) => setComposer((current) => (current ? { ...current, text } : current))}
+                  onSubmit={commitNote}
+                  onCancel={() => setComposer(null)}
+                  onImage={() => {
+                    imageSinkRef.current = (snippet) => {
+                      setComposer((current) => (current ? { ...current, text: (current.text || '') + snippet } : current));
+                    };
+                    imageInputRef.current?.click();
+                  }}
+                  onFormat={formatComposer}
+                />
+              </div>
+            )}
+            {notes.map((note) => (annLayout.visible[note.id] === false ? null : (
+              <div
+                key={note.id}
+                className="rag-card-slot"
+                style={{ top: annLayout.tops[note.id] ?? 0 }}
+                ref={(node) => {
+                  if (node) cardRefs.current.set(note.id, node);
+                  else cardRefs.current.delete(note.id);
                 }}
-              />
-              <div className="rag-note-actions">
-                <button type="button" className="rag-btn rag-btn-primary" onClick={commitNote}>保存</button>
-                <button type="button" className="rag-btn" onClick={() => setDraftNote(null)}>取消</button>
+              >
+                <NoteCard
+                  note={note}
+                  status={noteStatus[note.id]}
+                  onLocate={() => locate(note)}
+                  onDelete={() => removeNote(note)}
+                  onEdit={(text) => editNote(note, text)}
+                  onReply={(text) => addReply(note, text)}
+                  onImage={(insert) => { imageSinkRef.current = insert; imageInputRef.current?.click(); }}
+                />
               </div>
-            </div>
-          )}
-          <div className="rag-notes">
-            {notes.map((note) => (
-              <div key={note.id} className="rag-note">
-                <p className="rag-note-quote" onClick={() => locate(note)} title="点一下跳到这一块">
-                  {note.anchor?.quote || '（块的笔记）'}
-                  {note.anchor?.offset > 0 ? <span className="rag-note-offset">·第 {note.anchor.offset} 字</span> : null}
-                </p>
-                {noteStatus[note.id] === 'missing' && <p className="rag-note-drift">这块内容已经变了，原位置找不到了。</p>}
-                {noteStatus[note.id] === 'shifted' && <p className="rag-note-drift">块内文字有改动，定位可能不准。</p>}
-                <p className="rag-note-text">{note.text}</p>
-                <div className="rag-note-actions">
-                  <button type="button" className="rag-link" onClick={() => locate(note)}>定位</button>
-                  <button type="button" className="rag-link" onClick={() => removeNote(note.id)}>删除</button>
-                </div>
-              </div>
-            ))}
-            {notes.length === 0 && !draftNote && <p className="rag-empty">{doc ? '这篇还没有笔记。' : '打开一篇文档再加笔记。'}</p>}
+            )))}
+            {!doc && <p className="rag-empty">打开一篇文档，选中文字就能加评论。</p>}
+            {doc && notes.length === 0 && !composer && <p className="rag-empty">选中正文里的文字，右栏会出现输入框。</p>}
           </div>
-        </div>
-
-        <div className="rag-side-block">
-          <div className="rag-side-head">
-            <span>角色</span>
-            <button
-              type="button"
-              className="rag-link"
-              onClick={async () => {
-                const name = await askText('新建角色', '');
-                if (!name) return;
-                const instructions = await askText(`「${name}」怎么跟你说话？（提示词）`, '');
-                if (!instructions) return;
-                try {
-                  await saveRole(null, { name, prompt: instructions });
-                } catch (err) {
-                  fail(err);
-                }
-              }}
-            >新建</button>
-          </div>
-          <div className="rag-roles">
-            {roles.map((role) => (
-              <div key={role.id} className="rag-role">
-                <button type="button" className="rag-role-open" onClick={() => pickRole(role)} title={role.description}>
-                  <span className="rag-role-name">{role.emoji ? role.emoji + ' ' : ''}{role.name}</span>
-                  <span className="rag-role-desc">{role.description}</span>
-                </button>
-                {!role.builtin && (
-                  <span className="rag-role-tools">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const prompt = await askText(`「${role.name}」的提示词`, role.prompt || '');
-                        if (prompt === null) return;
-                        await saveRole(role, { prompt });
-                      }}
-                    >提示词</button>
-                    <button type="button" onClick={() => removeRole(role)}>删除</button>
-                  </span>
-                )}
-              </div>
-            ))}
-            {roles.length === 0 && <p className="rag-empty">没有角色。</p>}
-          </div>
-          <p className="rag-hint">点角色会开一个带它人格的新会话，并把当前文档位置带过去。</p>
         </div>
       </aside>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file) uploadCommentImage(file);
+        }}
+      />
       <input ref={fileInputRef} type="file" multiple accept=".md,.markdown,.txt" onChange={onPickFiles} hidden />
       <input ref={folderInputRef} type="file" multiple webkitdirectory="" directory="" onChange={onPickFolder} hidden />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />

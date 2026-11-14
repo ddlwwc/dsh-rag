@@ -11,6 +11,8 @@ export function readThemeName() {
 }
 
 /** 跟着宿主切主题：属性/类名变了就回调一次，返回取消订阅。 */
+/** 临时诊断：把客户端发生的事情记到宿主 <dataDir>/debug.log（验收完就删）。 */
+let debugLast = 0;
 export function observeTheme(onChange) {
   const root = document.documentElement;
   const emit = () => onChange(readThemeName());
