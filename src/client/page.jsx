@@ -72,8 +72,6 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const [bubble, setBubble] = useState(null);
   // 右栏收起时改展示本文大纲。
   const [outline, setOutline] = useState([]);
-  // 卡片重叠时：默认新卡片在上；点了哪张就把哪张抬到最上层。
-  const [raiseId, setRaiseId] = useState(null);
 
   const [dialog, setDialog] = useState(null);
   const dialogResolve = useRef(null);
@@ -310,7 +308,6 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
       setNotes(data.doc.notes || []);
       setComposer(null);
       setBubble(null);
-      setRaiseId(null);
       setError('');
       setExternal(false);
     } catch (err) {
@@ -368,12 +365,14 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     for (const note of notes) push(note.id, note.anchor);
     if (composerAnchorRef.current) push('__composer__', composerAnchorRef.current);
 
-    // 不再把重叠的卡片往下挤：卡片就贴着自己那一段文字，重叠的部分靠层级（新卡片在上）解决。
+    // 卡片一律不许互相压：所有卡片同一层，位置有冲突就往下让位（保持「贴着锚点行」的起点）。
+    items.sort((a, b) => a.y - b.y);
     let cursor = 0;
     for (const item of items) {
       const height = cardRefs.current.get(item.id)?.offsetHeight || 76;
-      tops[item.id] = Math.round(item.y);
-      cursor = Math.max(cursor, item.y + height + 8);
+      const y = Math.max(item.y, cursor);
+      tops[item.id] = Math.round(y);
+      cursor = y + height + 8;
     }
     const height = Math.max(cursor + 8, box.height - 40, track?.clientHeight ?? 0);
     setAnnLayout((current) => (
@@ -1250,13 +1249,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
             {notes.map((note) => (annLayout.visible[note.id] === false ? null : (
               <div
                 key={note.id}
-                className={'rag-card-slot' + (raiseId === note.id ? ' is-raised' : '')}
-                style={{
-                  top: annLayout.tops[note.id] ?? 0,
-                  // 新卡片压旧卡片；点了谁就把谁抬到最上层。
-                  zIndex: raiseId === note.id ? 200 : 10 + notes.indexOf(note),
-                }}
-                onMouseDown={() => setRaiseId(note.id)}
+                className="rag-card-slot"
+                style={{ top: annLayout.tops[note.id] ?? 0 }}
                 ref={(node) => {
                   if (node) cardRefs.current.set(note.id, node);
                   else cardRefs.current.delete(note.id);

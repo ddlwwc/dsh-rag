@@ -206,5 +206,4 @@ export const RAG_CSS = `
 .rag-color-dot.is-purple{background:rgba(160,110,255,.8)}
 .rag-color-dot.is-none{background:repeating-linear-gradient(45deg,#fff,#fff 2px,#ddd 2px,#ddd 4px)}
 .rag-card-meta{position:relative}
-.rag-card-slot.is-raised .rag-card{box-shadow:0 10px 28px rgba(15,23,42,.2)}
 `;
