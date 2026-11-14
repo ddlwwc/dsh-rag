@@ -23,6 +23,8 @@ export function MarkdownEditor({ markdown, blocks, onChange, onReady, onUpload, 
   uploadRef.current = onUpload;
 
   const options = useMemo(() => ({
+    // 词典必须在建编辑器时给：BlockNoteView 没有 dictionary 这个 prop，视图的斜杠菜单读的是编辑器实例上的词典。
+    dictionary: zh,
     // 默认关闭 emoji 词典（构建时已 stub），图片走宿主上传。
     uploadFile: async (file) => {
       const handler = uploadRef.current;
@@ -82,7 +84,7 @@ export function MarkdownEditor({ markdown, blocks, onChange, onReady, onUpload, 
   return (
     <div className="rag-editor-shell">
       <style data-plugin="dsh-rag">{mantineCss}</style>
-      <BlockNoteView editor={editor} dictionary={zh} theme={theme} editable={!readOnly} onChange={handleChange} />
+      <BlockNoteView editor={editor} theme={theme} editable={!readOnly} onChange={handleChange} />
     </div>
   );
 }
