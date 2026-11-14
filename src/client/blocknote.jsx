@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { useCreateBlockNote } from '@blocknote/react';
+// 编辑器自带的多语言词典：不传就全是英文（斜杠菜单、气泡工具条、占位符都是）。
+import { zh } from '@blocknote/core/locales';
 // CSS 走 text loader 内联（构建时把 @import 递归展开）：DSH 不保证宿主能加载插件的独立样式表。
 import mantineCss from '@blocknote/mantine/style.css';
 
@@ -80,7 +82,7 @@ export function MarkdownEditor({ markdown, blocks, onChange, onReady, onUpload, 
   return (
     <div className="rag-editor-shell">
       <style data-plugin="dsh-rag">{mantineCss}</style>
-      <BlockNoteView editor={editor} theme={theme} editable={!readOnly} onChange={handleChange} />
+      <BlockNoteView editor={editor} dictionary={zh} theme={theme} editable={!readOnly} onChange={handleChange} />
     </div>
   );
 }
