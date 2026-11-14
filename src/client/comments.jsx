@@ -84,13 +84,13 @@ function Toolbar({ onFormat, onImage }) {
   );
   return (
     <div className="rag-toolbar">
+      {btn('🖼', '插入图片', onImage)}
       {btn(<b>B</b>, '加粗', () => onFormat('bold'))}
       {btn(<i>I</i>, '斜体', () => onFormat('italic'))}
       {btn(<code className="rag-code">{"</>"}</code>, '行内代码', () => onFormat('code'))}
       {btn('•', '无序列表', () => onFormat('bullet'))}
       {btn('1.', '有序列表', () => onFormat('ordered'))}
       {btn('🔗', '链接', () => onFormat('link'))}
-      {btn('🖼', '插入图片', onImage)}
       <span className="rag-tool-emoji">
         {btn('🙂', '表情', () => setEmojiOpen((v) => !v))}
         {emojiOpen && (
@@ -110,14 +110,14 @@ export function Composer({ value, onChange, onSubmit, onCancel, onImage, onForma
   return (
     <div className="rag-composer">
       <textarea
-        ref={inputRef}
-        value={value}
-        placeholder="请添加评论…"
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') onSubmit();
-          if (event.key === 'Escape') onCancel();
-        }}
+          ref={inputRef}
+          value={value}
+          placeholder="请添加评论…"
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') onSubmit();
+            if (event.key === 'Escape') onCancel();
+          }}
       />
       <Toolbar onFormat={onFormat} onImage={onImage} />
       <div className="rag-composer-actions">
@@ -181,8 +181,6 @@ export function NoteCard({ note, color = 'yellow', onColor, status, onLocate, on
     <div className="rag-card">
       <div className="rag-card-main">
         <div className="rag-card-meta">
-          <span className="rag-card-avatar" aria-hidden="true">我</span>
-          <span className="rag-card-who">我</span>
           <span className="rag-card-time">{timeText(note.createdAt)}</span>
           <span className="rag-card-tools">
             <button type="button" className="rag-link" onClick={onLocate}>定位</button>
@@ -256,11 +254,33 @@ export function NoteCard({ note, color = 'yellow', onColor, status, onLocate, on
           />
         </div>
       ) : (
-        <button
-          type="button"
-          className="rag-link rag-card-reply-btn"
-          onClick={() => { setReplyText(''); setReplying(true); }}
-        >回复</button>
+        <div className="rag-card-foot">
+          <button
+            type="button"
+            className="rag-card-act"
+            title="回复"
+            aria-label="回复"
+            onClick={() => { setReplyText(''); setReplying(true); }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M13.2 7.2c0 2.5-2.3 4.5-5.2 4.5-.6 0-1.2-.1-1.7-.2L3.4 13l.8-2.2C3.4 9.9 2.8 8.6 2.8 7.2c0-2.5 2.3-4.5 5.2-4.5s5.2 2 5.2 4.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="rag-card-act"
+            title="表情回应"
+            aria-label="表情回应"
+            onClick={() => { setReplying(true); }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.6" stroke="currentColor" strokeWidth="1.1" />
+              <path d="M5.6 9.2c.5.9 1.4 1.4 2.4 1.4s1.9-.5 2.4-1.4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+              <circle cx="6.2" cy="6.6" r=".7" fill="currentColor" />
+              <circle cx="9.8" cy="6.6" r=".7" fill="currentColor" />
+            </svg>
+          </button>
+        </div>
       )}
     </div>
   );

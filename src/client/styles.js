@@ -89,13 +89,11 @@ export const RAG_CSS = `
 .rag-ann-scroll{flex:1;min-height:0;overflow-y:auto;padding:8px 0 24px}
 .rag-ann-track{position:relative;min-height:100%}
 .rag-card-slot{position:absolute;left:0;right:0;padding:0 10px}
-.rag-card{border:1px solid rgba(0,0,0,.06);border-radius:12px;background:var(--dsw-alias-bg-elevated,#fff);padding:10px 12px 8px;font-size:12px;display:flex;flex-direction:column;gap:6px;box-shadow:0 2px 8px rgba(15,23,42,.08)}
-.rag-card:hover{box-shadow:0 6px 18px rgba(15,23,42,.12)}
-.rag-card-main{display:flex;flex-direction:column;gap:5px}
-.rag-card-meta{display:flex;align-items:center;gap:6px;font-size:11.5px;opacity:.9}
-.rag-card-avatar{flex:0 0 auto;width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#fff;background:linear-gradient(135deg,#6d8bff,#3f62f6)}
-.rag-card-who{color:var(--dsw-alias-text-primary,#1f2329);font-weight:600}
-.rag-card-time{color:var(--dsw-alias-text-secondary,#8a9099);font-size:11px}
+.rag-card{border:1px solid rgba(0,0,0,.06);border-radius:10px;background:var(--dsw-alias-bg-elevated,#fff);padding:14px 16px 8px;font-size:13px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 4px rgba(15,23,42,.06)}
+.rag-card:hover{box-shadow:0 4px 16px rgba(15,23,42,.1)}
+.rag-card-main{display:flex;flex-direction:column;gap:8px}
+.rag-card-meta{display:flex;align-items:center;gap:8px;font-size:12px;min-height:20px}
+.rag-card-time{color:var(--dsw-alias-text-secondary,#9aa0a6);font-size:12px;line-height:1.2}
 .rag-card-tools{display:flex;gap:8px;margin-left:auto;opacity:0;transition:opacity .12s ease}
 .rag-card:hover .rag-card-tools,.rag-card:focus-within .rag-card-tools{opacity:1}
 .rag-link.is-danger{color:#c0392b}
@@ -108,8 +106,11 @@ export const RAG_CSS = `
 .rag-quote-bar.is-pink{background:rgba(255,105,180,.8)}
 .rag-quote-bar.is-purple{background:rgba(160,110,255,.75)}
 .rag-quote-bar.is-none{background:repeating-linear-gradient(45deg,#fff,#fff 2px,#ddd 2px,#ddd 4px)}
-.rag-card-quote{margin:0;padding-left:8px;border-left:none;font-size:11.5px;color:var(--dsw-alias-text-secondary,#8a9099);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.rag-card-body{line-height:1.65;font-size:12.5px;color:var(--dsw-alias-text-primary,#1f2329)}
+.rag-card-quote{margin:0;padding-left:9px;border-left:none;font-size:11.5px;color:var(--dsw-alias-text-secondary,#9aa0a6);overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+.rag-card-body{line-height:1.8;font-size:13px;color:var(--dsw-alias-text-primary,#1f2329);word-break:break-word}
+.rag-card-foot{display:flex;gap:14px;align-items:center;padding-top:2px}
+.rag-card-act{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:none;background:none;color:var(--dsw-alias-text-secondary,#9aa0a6);cursor:pointer;border-radius:5px;opacity:.85}
+.rag-card-act:hover{background:var(--dsw-alias-bg-hover,rgba(0,0,0,.05));color:var(--dsw-alias-accent,#2f6bff)}
 .rag-note-p{margin:0 0 4px;white-space:pre-wrap;word-break:break-word}
 .rag-note-list{margin:0 0 4px;padding-left:18px}
 .rag-note-img{max-width:100%;border-radius:6px;display:block;margin:4px 0}
@@ -118,20 +119,19 @@ export const RAG_CSS = `
 .rag-floor-index{flex:0 0 auto;font-size:10.5px;opacity:.5;padding-top:1px}
 .rag-floor-body{flex:1;min-width:0;font-size:11.5px;line-height:1.5}
 .rag-floor-time{display:block;font-size:10.5px;opacity:.45;margin-top:2px}
-.rag-card-reply-btn{align-self:flex-end;opacity:.0;font-size:11px;margin-top:2px}
-.rag-card:hover .rag-card-reply-btn,.rag-card:focus-within .rag-card-reply-btn{opacity:.75}
 .rag-card-reply{margin-top:4px}
-.rag-composer{display:flex;flex-direction:column;gap:6px}
-.rag-composer textarea{width:100%;min-height:64px;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.14));border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:12px;line-height:1.5;padding:7px 8px;resize:vertical}
-.rag-composer textarea:focus{outline:none;border-color:rgba(99,125,255,.6)}
-.rag-toolbar{display:flex;align-items:center;gap:2px;flex-wrap:wrap}
-.rag-tool{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 4px;border:none;background:none;color:inherit;opacity:.6;font-size:12px;cursor:pointer;border-radius:5px}
+.rag-composer{display:flex;flex-direction:column;gap:10px;padding:14px 16px 12px;border:1px solid rgba(0,0,0,.06);border-radius:10px;background:var(--dsw-alias-bg-elevated,#fff);box-shadow:0 1px 4px rgba(15,23,42,.06)}
+.rag-composer textarea{width:100%;min-height:92px;border:none;outline:none;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.75;padding:0;resize:vertical}
+.rag-composer textarea::placeholder{color:var(--dsw-alias-text-tertiary,#b6bcc4)}
+.rag-composer textarea:focus{outline:none}
+.rag-toolbar{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.rag-tool{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 5px;border:none;background:none;color:inherit;opacity:.7;font-size:13px;cursor:pointer;border-radius:5px}
 .rag-tool:hover{opacity:1;background:rgba(0,0,0,.06)}
 .rag-tool-emoji{position:relative;display:inline-flex}
 .rag-emoji-pop{position:absolute;bottom:26px;left:0;z-index:20;display:grid;grid-template-columns:repeat(8,1fr);gap:2px;width:196px;padding:5px;border-radius:8px;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.1));background:var(--dsw-alias-bg-elevated,#fff);box-shadow:0 10px 24px rgba(0,0,0,.16)}
 .rag-emoji-pop button{border:none;background:none;cursor:pointer;font-size:14px;line-height:1;padding:3px;border-radius:4px}
 .rag-emoji-pop button:hover{background:rgba(0,0,0,.06)}
-.rag-composer-actions{display:flex;gap:6px}
+.rag-composer-actions{display:flex;gap:10px}
 /* 正文里的评论高亮：只上底色，不加边框和行内图标，保证打字与选中都不受影响 */
 .rag-ann{background:rgba(255,214,10,.5);border-radius:3px;box-shadow:inset 0 -2px 0 rgba(255,190,0,.7);cursor:pointer}
 .rag-ann:hover{background:rgba(255,214,10,.68)}
