@@ -39,6 +39,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const [dropTarget, setDropTarget] = useState('');
   // 多选导出的集合；空集合时「导出」就是整库。
   const [menu, setMenu] = useState(null);
+  const [libDragging, setLibDragging] = useState('');
+  const [libDropTarget, setLibDropTarget] = useState('');
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
   const pendingDirRef = useRef('');
@@ -397,16 +399,20 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     }
   }, [askText, fail]);
 
-  const moveLibrary = useCallback(async (id, delta) => {
-    const index = libraries.findIndex((l) => l.id === id);
-    const target = index + delta;
-    if (index < 0 || target < 0 || target >= libraries.length) return;
+  /** 拖拽重排：把 from 插到 to 的位置（不是交换），松手就落库。 */
+  const reorderLibraries = useCallback(async (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    const from = libraries.findIndex((l) => l.id === fromId);
+    const to = libraries.findIndex((l) => l.id === toId);
+    if (from < 0 || to < 0) return;
     const next = [...libraries];
-    [next[index], next[target]] = [next[target], next[index]];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
     setLibraries(next);
     try {
       await api.reorderLibraries(next.map((l) => l.id));
     } catch (err) {
+      try { const libs = await api.listLibraries(); setLibraries(libs.libraries || []); } catch { /* 回滚失败就算了 */ }
       fail(err);
     }
   }, [libraries, fail]);
@@ -667,35 +673,65 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     <div className={rootClass}>
       <style data-plugin="dsh-rag">{RAG_CSS}</style>
 
+      <button
+        type="button"
+        className="rag-edge-toggle is-left"
+        onClick={() => setRailCollapsed((v) => !v)}
+        title={railCollapsed ? '展开知识库栏' : '收起知识库栏'}
+        aria-label={railCollapsed ? '展开知识库栏' : '收起知识库栏'}
+      >{railCollapsed ? '›' : '‹'}</button>
+      <button
+        type="button"
+        className="rag-edge-toggle is-right"
+        onClick={() => setSideCollapsed((v) => !v)}
+        title={sideCollapsed ? '展开笔记栏' : '收起笔记栏'}
+        aria-label={sideCollapsed ? '展开笔记栏' : '收起笔记栏'}
+      >{sideCollapsed ? '‹' : '›'}</button>
+
       <aside className="rag-rail">
         <div className="rag-rail-head">
           <span className="rag-title">知识库</span>
           <div className="rag-rail-actions">
             <button type="button" className="rag-btn rag-btn-ghost" onClick={createLibrary} title="新建知识库">＋ 新建</button>
             <button type="button" className="rag-btn rag-btn-ghost" onClick={mountLibrary} title="挂载已有目录">挂载</button>
-            <button
-              type="button"
-              className="rag-icon-btn"
-              onClick={() => setRailCollapsed(true)}
-              title="收起知识库栏"
-              aria-label="收起知识库栏"
-            >‹</button>
           </div>
         </div>
 
         <div className="rag-libs">
-          {libraries.map((library, index) => (
+          {libraries.map((library) => (
             <div
               key={library.id}
-              className={'rag-lib' + (library.id === activeId ? ' is-active' : '')}
+              className={'rag-lib' + (library.id === activeId ? ' is-active' : '')
+                + (libDragging === library.id ? ' is-dragging' : '')
+                + (libDropTarget === library.id && libDragging !== library.id ? ' is-drop' : '')}
+              draggable
               onClick={() => setActiveId(library.id)}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', library.id);
+                setLibDragging(library.id);
+              }}
+              onDragEnd={() => { setLibDragging(''); setLibDropTarget(''); }}
+              onDragOver={(e) => {
+                if (!libDragging) return;
+                e.preventDefault();
+                e.stopPropagation();
+                setLibDropTarget(library.id);
+              }}
+              onDragLeave={() => setLibDropTarget((t) => (t === library.id ? '' : t))}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const fromId = libDragging || e.dataTransfer.getData('text/plain');
+                setLibDragging('');
+                setLibDropTarget('');
+                void reorderLibraries(fromId, library.id);
+              }}
             >
               <LibraryIcon />
               <span className="rag-lib-name" title={library.path}>{library.name}</span>
               <span className="rag-lib-count">{library.docCount ?? ''}</span>
               <span className="rag-lib-tools" onClick={(e) => e.stopPropagation()}>
-                <button type="button" onClick={() => moveLibrary(library.id, -1)} title="上移" disabled={index === 0}>↑</button>
-                <button type="button" onClick={() => moveLibrary(library.id, 1)} title="下移" disabled={index === libraries.length - 1}>↓</button>
                 <button type="button" onClick={() => renameLibrary(library)} title="改名">✎</button>
                 <button type="button" onClick={() => removeLibrary(library)} title="删除">✕</button>
               </span>
@@ -818,12 +854,6 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
               </div>
             )}
             {doc && <button type="button" className="rag-btn" onClick={beginNote}>＋ 笔记</button>}
-            {railCollapsed && (
-              <button type="button" className="rag-btn" onClick={() => setRailCollapsed(false)} title="展开知识库栏">库栏</button>
-            )}
-            {sideCollapsed && (
-              <button type="button" className="rag-btn" onClick={() => setSideCollapsed(false)} title="展开笔记栏">笔记栏</button>
-            )}
             <button type="button" className="rag-btn rag-side-toggle" onClick={() => setSideOpen((v) => !v)} title="笔记与角色">侧栏</button>
             {!standalone && (
               <button type="button" className="rag-btn" onClick={openFullscreen} title="在独立窗口（系统浏览器）里打开知识库">⤢ 独立窗口</button>
@@ -887,11 +917,11 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
           <span>笔记与角色</span>
           <button
             type="button"
-            className="rag-icon-btn"
-            onClick={() => setSideCollapsed(true)}
-            title="收起笔记栏"
-            aria-label="收起笔记栏"
-          >›</button>
+            className="rag-icon-btn rag-drawer-close"
+            onClick={() => setSideOpen(false)}
+            title="关闭笔记栏"
+            aria-label="关闭笔记栏"
+          >‹</button>
         </div>
         <div className="rag-side-block">
           <div className="rag-side-head">

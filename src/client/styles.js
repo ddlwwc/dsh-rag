@@ -47,6 +47,9 @@ export const RAG_CSS = `
 .rag-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rag-hint{margin:0 10px 6px;font-size:11px;line-height:1.5;opacity:.55}
 
+.rag-lib.is-dragging{opacity:.45}
+.rag-lib.is-drop{box-shadow:inset 0 2px 0 var(--dsw-alias-accent,#2f6bff);border-radius:6px}
+
 .rag-menu{position:fixed;z-index:95;padding:5px;border-radius:11px;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.1));background:var(--dsw-alias-bg-elevated,#fff);box-shadow:0 12px 32px rgba(0,0,0,.16);backdrop-filter:blur(8px)}
 .rag-menu-item{display:block;width:100%;text-align:left;border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;color:inherit;padding:6px 10px;border-radius:7px}
 .rag-menu-item:hover{background:var(--dsw-alias-bg-hover,rgba(0,0,0,.06))}
@@ -108,12 +111,22 @@ export const RAG_CSS = `
 .rag-hint{font-size:11px;opacity:.55;margin:6px 0 0}
 .rag-empty{font-size:12px;opacity:.55;padding:6px 8px;margin:0}
 .rag-side-toggle{display:none}
+.rag-drawer-close{display:none}
+/* 栏位开合：贴在分栏线上、垂直居中的小竖条，不占行高也不挤正文 */
+.rag-edge-toggle{position:absolute;top:50%;transform:translateY(-50%);z-index:24;display:flex;align-items:center;justify-content:center;width:15px;height:46px;padding:0;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.12));background:var(--dsw-alias-bg-elevated,#fff);color:inherit;font-size:11px;line-height:1;border-radius:8px;cursor:pointer;opacity:.42;transition:opacity .15s ease}
+.rag-edge-toggle:hover{opacity:1;background:var(--dsw-alias-bg-hover,rgba(0,0,0,.06))}
+.rag-edge-toggle.is-left{left:calc(var(--rag-rail) - 8px)}
+.rag-edge-toggle.is-right{right:calc(var(--rag-side) - 8px)}
+.rag-root.is-rail-collapsed .rag-edge-toggle.is-left{left:2px}
+.rag-root.is-side-collapsed .rag-edge-toggle.is-right{right:2px}
 @media (max-width: 1080px){
   .rag-root{--rag-rail:200px;grid-template-columns:var(--rag-rail) minmax(0,1fr)}
   .rag-rail-head{padding-top:40px}
   .rag-side{position:fixed;top:0;right:0;bottom:0;width:300px;z-index:70;background:var(--dsw-alias-bg-elevated,#fff);box-shadow:-12px 0 32px rgba(0,0,0,.18);transform:translateX(100%);transition:transform .18s ease}
   .rag-side.is-open{transform:none}
   .rag-side-toggle{display:inline-flex}
+  .rag-drawer-close{display:inline-flex}
+  .rag-edge-toggle.is-right{right:6px}
 }
 @media (max-width: 760px){
   .rag-root{--rag-rail:0px;grid-template-columns:minmax(0,1fr)}
