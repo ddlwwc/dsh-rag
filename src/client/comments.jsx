@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ANNOT_COLORS } from './helpers.js';
 
 // 评论正文的轻格式：只存 markdown 源文本，卡片里自己渲染。不引富文本编辑器 ——
 // 评论输入框出现时不能抢正文的焦点，越轻越好。
@@ -145,10 +146,11 @@ function insertFormat(text, start, end, kind, argument, fallback = '文字') {
   return text;
 }
 
-export function NoteCard({ note, status, onLocate, onDelete, onEdit, onReply, onImage }) {
+export function NoteCard({ note, color = 'yellow', onColor, status, onLocate, onDelete, onEdit, onReply, onImage }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(note.text || '');
   const [replying, setReplying] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [replyText, setReplyText] = useState('');
   const replyRef = useRef(null);
   const replies = Array.isArray(note.replies) ? note.replies : [];
@@ -188,7 +190,34 @@ export function NoteCard({ note, status, onLocate, onDelete, onEdit, onReply, on
             <button type="button" className="rag-link is-danger" onClick={onDelete}>删除</button>
           </span>
         </div>
-        {note.anchor?.quote && <p className="rag-card-quote">「{note.anchor.quote.slice(0, 80)}」</p>}
+        {note.anchor?.quote && (
+          <div className="rag-quote-wrap">
+            {/* 引用条本身就是色块：点它换颜色，色块排在卡片右边一行 */}
+            <button
+              type="button"
+              className={`rag-quote-bar is-${color}`}
+              onClick={() => setPicking((v) => !v)}
+              title="改选中文字的背景色"
+              aria-label="改选中文字的背景色"
+            />
+            <p className="rag-card-quote">「{note.anchor.quote.slice(0, 80)}」</p>
+          </div>
+        )}
+        {picking && (
+          <div className="rag-color-strip">
+            <span className="rag-color-label">背景色</span>
+            {ANNOT_COLORS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`rag-color-dot is-${item.id}`}
+                title={item.name}
+                aria-label={item.name}
+                onClick={() => { onColor?.(item.id); setPicking(false); }}
+              />
+            ))}
+          </div>
+        )}
         {editing ? (
           <div className="rag-card-edit">
             <textarea value={text} onChange={(e) => setText(e.target.value)} />

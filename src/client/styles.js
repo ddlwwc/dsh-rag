@@ -76,7 +76,9 @@ export const RAG_CSS = `
 .rag-banner{padding:6px 16px;font-size:12px;background:rgba(47,107,255,.08)}
 .rag-toast{position:fixed;right:24px;bottom:24px;z-index:75;padding:7px 14px;border-radius:999px;font-size:12px;background:var(--dsw-alias-bg-elevated,#fff);color:var(--dsw-alias-text-primary,#1a1a1a);border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.12));box-shadow:0 8px 24px rgba(0,0,0,.16);pointer-events:none}
 .rag-banner.is-error{background:rgba(220,38,38,.1);display:flex;justify-content:space-between}
-.rag-doc{flex:1;min-height:0;overflow:auto}
+.rag-doc{flex:1;min-height:0;overflow:auto;position:relative;scrollbar-width:none;-ms-overflow-style:none}
+.rag-doc::-webkit-scrollbar{width:0;height:0}
+.rag-doc::-webkit-scrollbar-thumb{background:transparent}
 .rag-blank{padding:60px 40px;opacity:.7}
 .rag-blank h2{font-size:16px;margin:0 0 8px}
 .rag-editor-shell{padding:16px 24px 120px}
@@ -97,7 +99,16 @@ export const RAG_CSS = `
 .rag-card-tools{display:flex;gap:8px;margin-left:auto;opacity:0;transition:opacity .12s ease}
 .rag-card:hover .rag-card-tools,.rag-card:focus-within .rag-card-tools{opacity:1}
 .rag-link.is-danger{color:#c0392b}
-.rag-card-quote{margin:0;padding-left:8px;border-left:3px solid rgba(255,190,0,.9);font-size:11.5px;color:var(--dsw-alias-text-secondary,#8a9099);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.rag-quote-wrap{position:relative;display:flex;align-items:stretch;gap:0}
+.rag-quote-bar{flex:0 0 3px;width:3px;min-height:16px;padding:0;border:none;border-radius:2px;cursor:pointer;background:rgba(255,190,0,.9)}
+.rag-quote-bar:hover{flex-basis:5px;width:5px}
+.rag-quote-bar.is-yellow{background:rgba(255,190,0,.9)}
+.rag-quote-bar.is-green{background:rgba(82,196,26,.75)}
+.rag-quote-bar.is-blue{background:rgba(93,120,255,.75)}
+.rag-quote-bar.is-pink{background:rgba(255,105,180,.8)}
+.rag-quote-bar.is-purple{background:rgba(160,110,255,.75)}
+.rag-quote-bar.is-none{background:repeating-linear-gradient(45deg,#fff,#fff 2px,#ddd 2px,#ddd 4px)}
+.rag-card-quote{margin:0;padding-left:8px;border-left:none;font-size:11.5px;color:var(--dsw-alias-text-secondary,#8a9099);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .rag-card-body{line-height:1.65;font-size:12.5px;color:var(--dsw-alias-text-primary,#1f2329)}
 .rag-note-p{margin:0 0 4px;white-space:pre-wrap;word-break:break-word}
 .rag-note-list{margin:0 0 4px;padding-left:18px}
@@ -152,9 +163,10 @@ export const RAG_CSS = `
   .rag-rail{display:none}
 }
 .rag-root.is-rail-collapsed{--rag-rail:0px}
-.rag-root.is-side-collapsed{--rag-side:0px}
+.rag-root.is-side-collapsed{--rag-side:212px}
+.rag-root.is-side-collapsed .rag-side .rag-ann-scroll{display:none}
 .rag-root.is-rail-collapsed .rag-rail,.rag-root.is-side-collapsed .rag-side{overflow:hidden;padding:0;border:0}
-.rag-root.is-rail-collapsed .rag-rail>*,.rag-root.is-side-collapsed .rag-side>*{visibility:hidden}
+.rag-root.is-rail-collapsed .rag-rail>*{visibility:hidden}
 .rag-fullscreen{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;padding-top:44px;background:var(--dsw-alias-bg-base,#fff)}
 .rag-fullscreen>.rag-root{flex:1;min-height:0}
 .rag-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:80}
@@ -163,4 +175,36 @@ export const RAG_CSS = `
 .rag-modal-input{width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.18));border-radius:8px;padding:8px 10px;font-size:13px;background:transparent;color:inherit;outline:none}
 .rag-modal-input:focus{border-color:rgba(47,107,255,.6)}
 .rag-modal-actions{display:flex;justify-content:flex-end;gap:8px}
+/* 划词气泡：贴在选区右端，只画一个小图标，点它才开会话输入框 */
+.rag-bubble{position:absolute;z-index:20;width:22px;height:22px;margin-top:-11px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.12));background:var(--dsw-alias-bg-elevated,#fff);color:var(--dsw-alias-accent,#2f6bff);box-shadow:0 2px 6px rgba(15,23,42,.12);cursor:pointer;padding:0}
+.rag-bubble:hover{background:var(--dsw-alias-accent,#2f6bff);color:#fff;border-color:transparent}
+
+/* 右栏收起后的大纲 */
+.rag-outline-list{flex:1;min-height:0;overflow-y:auto;padding:6px 8px 20px;display:flex;flex-direction:column;gap:1px}
+.rag-outline-item{display:block;width:100%;text-align:left;border:none;background:none;color:var(--dsw-alias-text-primary,#1f2329);font-size:12px;line-height:1.5;padding:4px 6px;border-radius:6px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rag-outline-item:hover{background:var(--dsw-alias-bg-hover,rgba(0,0,0,.05))}
+.rag-outline-item.is-l1{font-weight:600}
+.rag-outline-item.is-l2{padding-left:16px}
+.rag-outline-item.is-l3{padding-left:26px;opacity:.88}
+.rag-outline-item.is-l4{padding-left:36px;opacity:.8}
+
+/* 卡片左上角：改选中文字的背景色 */
+.rag-color-btn{flex:0 0 auto;width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.18);padding:0;cursor:pointer;background:rgba(255,214,10,.9)}
+.rag-color-btn.is-yellow{background:rgba(255,214,10,.95)}
+.rag-color-btn.is-green{background:rgba(82,196,26,.85)}
+.rag-color-btn.is-blue{background:rgba(93,120,255,.8)}
+.rag-color-btn.is-pink{background:rgba(255,105,180,.85)}
+.rag-color-btn.is-purple{background:rgba(160,110,255,.8)}
+.rag-color-btn.is-none{background:repeating-linear-gradient(45deg,#fff,#fff 2px,#ddd 2px,#ddd 4px)}
+.rag-color-strip{display:flex;gap:6px;align-items:center;justify-content:flex-end;padding:4px 2px 2px}
+.rag-color-label{font-size:11px;color:var(--dsw-alias-text-secondary,#8a9099);margin-right:2px}
+.rag-color-dot{width:14px;height:14px;border-radius:50%;border:1px solid rgba(0,0,0,.18);padding:0;cursor:pointer}
+.rag-color-dot.is-yellow{background:rgba(255,214,10,.95)}
+.rag-color-dot.is-green{background:rgba(82,196,26,.85)}
+.rag-color-dot.is-blue{background:rgba(93,120,255,.8)}
+.rag-color-dot.is-pink{background:rgba(255,105,180,.85)}
+.rag-color-dot.is-purple{background:rgba(160,110,255,.8)}
+.rag-color-dot.is-none{background:repeating-linear-gradient(45deg,#fff,#fff 2px,#ddd 2px,#ddd 4px)}
+.rag-card-meta{position:relative}
+.rag-card-slot.is-raised .rag-card{box-shadow:0 10px 28px rgba(15,23,42,.2)}
 `;

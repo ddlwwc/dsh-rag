@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText } from './api.js';
 import {
-  MarkdownEditor, anchorGeometry, currentAnchor, focusBlock, refreshAnnotations, resolveAnchor,
-  selectionAnchor, setAnnotationNotes,
+  MarkdownEditor, anchorGeometry, currentAnchor, focusBlock, outlineOf, refreshAnnotations,
+  resolveAnchor, scrollToBlock, selectionAnchor, selectionRect, setAnnotationNotes,
 } from './blocknote.jsx';
 import { Composer, NoteCard } from './comments.jsx';
 import { PromptDialog } from './dialog.jsx';
@@ -68,6 +68,12 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   // 用户看到的就是「右边评论栏不见了」。
   const [railCollapsed, setRailCollapsed] = useState(() => !standalone && readFlag('rail-collapsed'));
   const [sideCollapsed, setSideCollapsed] = useState(() => !standalone && readFlag('side-collapsed'));
+  // 划词后正文右侧只有一个评论气泡；点它才把输入框拉到右栏（不打断编辑）。
+  const [bubble, setBubble] = useState(null);
+  // 右栏收起时改展示本文大纲。
+  const [outline, setOutline] = useState([]);
+  // 卡片重叠时：默认新卡片在上；点了哪张就把哪张抬到最上层。
+  const [raiseId, setRaiseId] = useState(null);
 
   const [dialog, setDialog] = useState(null);
   const dialogResolve = useRef(null);
@@ -303,6 +309,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
       setDocBlocks(Array.isArray(data.blocks) ? data.blocks : null);
       setNotes(data.doc.notes || []);
       setComposer(null);
+      setBubble(null);
+      setRaiseId(null);
       setError('');
       setExternal(false);
     } catch (err) {
@@ -360,13 +368,12 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     for (const note of notes) push(note.id, note.anchor);
     if (composerAnchorRef.current) push('__composer__', composerAnchorRef.current);
 
-    items.sort((a, b) => a.y - b.y);
+    // 不再把重叠的卡片往下挤：卡片就贴着自己那一段文字，重叠的部分靠层级（新卡片在上）解决。
     let cursor = 0;
     for (const item of items) {
       const height = cardRefs.current.get(item.id)?.offsetHeight || 76;
-      const y = Math.max(item.y, cursor);
-      tops[item.id] = Math.round(y);
-      cursor = y + height + 8;
+      tops[item.id] = Math.round(item.y);
+      cursor = Math.max(cursor, item.y + height + 8);
     }
     const height = Math.max(cursor + 8, box.height - 40, track?.clientHeight ?? 0);
     setAnnLayout((current) => (
@@ -407,17 +414,30 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     };
   }, [layoutAnnotations, doc?.relPath, editorReady]);
 
-  /** 划词 → 右栏出现输入框；清掉选区时，没写字的输入框自己收起来。 */
+  // 右栏收起时右栏改展示大纲；只在收起状态下算，展开时不做无用功。
+  useEffect(() => {
+    if (!sideCollapsed) return undefined;
+    const editor = editorRef.current;
+    if (!editor) { setOutline([]); return undefined; }
+    const run = () => setOutline(outlineOf(editor));
+    run();
+    const timer = setInterval(run, 1500);
+    return () => clearInterval(timer);
+  }, [sideCollapsed, editorReady, doc?.relPath]);
+
+  /**
+   * 划词只给一个气泡，不直接弹输入框：上一版「划词就弹东西」被判太吵。
+   * 气泡贴在选区右端，随正文滚动一起走。
+   */
   const onSelect = useCallback((anchor) => {
-    // 窄窗口下右栏是抽屉：划词后把它拉出来，否则输入框看不见。
-    if (anchor && typeof window !== 'undefined' && window.innerWidth <= 1080) setSideOpen(true);
-    setComposer((current) => {
-      if (!anchor) return current && !current.text.trim() ? null : current;
-      const previous = current?.anchor;
-      if (previous && previous.blockId === anchor.blockId && previous.start === anchor.start
-        && previous.quote === anchor.quote) return current;
-      return { anchor, text: '' };
-    });
+    const editor = editorRef.current;
+    if (!anchor || !anchor.quote) {
+      setBubble(null);
+      return;
+    }
+    const rect = selectionRect(editor);
+    if (!rect) { setBubble(null); return; }
+    setBubble({ anchor, top: rect.top, left: rect.left });
   }, []);
 
   const beginNote = useCallback(() => {
@@ -431,7 +451,9 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     if (!composer) return;
     const text = composer.text.trim();
     if (!text) { setComposer(null); return; }
-    const note = { id: newNoteId(), text, anchor: composer.anchor, createdAt: Date.now(), replies: [] };
+    const note = {
+    id: newNoteId(), text, anchor: composer.anchor, color: 'yellow', createdAt: Date.now(), replies: [],
+  };
     setComposer(null);
     if (await persistNotes([...notes, note])) toast('评论已加');
   }, [composer, notes, persistNotes, toast]);
@@ -444,6 +466,10 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const editNote = useCallback(async (note, text) => {
     if (!text) return;
     await persistNotes(notes.map((n) => (n.id === note.id ? { ...n, text } : n)));
+  }, [notes, persistNotes]);
+
+  const changeNoteColor = useCallback(async (note, color) => {
+    await persistNotes(notes.map((n) => (n.id === note.id ? { ...n, color } : n)));
   }, [notes, persistNotes]);
 
   const addReply = useCallback(async (note, text) => {
@@ -844,7 +870,10 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
 
   /** 点正文里的高亮 → 把右栏对应的评论卡滚进视野。 */
   const focusAnnotation = useCallback((id) => {
-    cardRefs.current.get(id)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setSideCollapsed(false);   // 点正文高亮时右栏可能已收成大纲，先切回评论再定位
+    requestAnimationFrame(() => {
+      cardRefs.current.get(id)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
   }, []);
 
   // ── 角色 ───────────────────────────────────────────────
@@ -893,8 +922,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
         type="button"
         className="rag-edge-toggle is-right"
         onClick={() => setSideCollapsed((v) => !v)}
-        title={sideCollapsed ? '展开笔记栏' : '收起笔记栏'}
-        aria-label={sideCollapsed ? '展开笔记栏' : '收起笔记栏'}
+        title={sideCollapsed ? '展开评论栏' : '收起评论栏（显示大纲）'}
+        aria-label={sideCollapsed ? '展开评论栏' : '收起评论栏'}
       >{sideCollapsed ? '‹' : '›'}</button>
 
       <aside
@@ -1139,21 +1168,61 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
               <pre className="rag-source-body">{doc.markdown}</pre>
             </div>
           )}
+          {/* 划词气泡：贴在选区右端，点它才把输入框拉到右栏 */}
+          {doc && mode === 'rich' && bubble && (
+            <button
+              type="button"
+              className="rag-bubble"
+              style={{ top: `${bubble.top}px`, left: `${bubble.left + 6}px` }}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => { setSideCollapsed(false); setComposer({ anchor: bubble.anchor, text: '' }); setBubble(null); }}
+              title="加评论"
+              aria-label="加评论"
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M2.6 3.2h10.8v6.6H8.1L5 12.3v-2.5H2.6z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </div>
       </main>
 
       <aside className={'rag-side' + (sideOpen ? ' is-open' : '')}>
         <div className="rag-side-bar">
-          <span>划词评论（{notes.length}）</span>
-          <button
-            type="button"
-            className="rag-icon-btn rag-drawer-close"
-            onClick={() => setSideOpen(false)}
-            title="关闭评论栏"
-            aria-label="关闭评论栏"
-          >‹</button>
+          <span>{sideCollapsed ? '大纲' : `划词评论（${notes.length}）`}</span>
+          {sideCollapsed ? (
+            <button
+              type="button"
+              className="rag-icon-btn"
+              onClick={() => setSideCollapsed(false)}
+              title="展开评论栏"
+              aria-label="展开评论栏"
+            >‹</button>
+          ) : (
+            <button
+              type="button"
+              className="rag-icon-btn rag-drawer-close"
+              onClick={() => setSideOpen(false)}
+              title="关闭评论栏"
+              aria-label="关闭评论栏"
+            >‹</button>
+          )}
         </div>
-        <div className="rag-ann-scroll">
+        {sideCollapsed && (
+          <div className="rag-outline-list">
+            {outline.length === 0 && <p className="rag-empty">这篇文档还没有标题。</p>}
+            {outline.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`rag-outline-item is-l${Math.min(item.level, 4)}`}
+                onClick={() => scrollToBlock(editorRef.current, item.id)}
+                title={item.text}
+              >{item.text}</button>
+            ))}
+          </div>
+        )}
+        <div className="rag-ann-scroll" hidden={sideCollapsed}>
           <div className="rag-ann-track" style={{ height: annLayout.height ? `${annLayout.height}px` : '100%' }}>
             {composer && annLayout.tops.__composer__ != null && annLayout.visible.__composer__ !== false && (
               <div
@@ -1181,8 +1250,13 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
             {notes.map((note) => (annLayout.visible[note.id] === false ? null : (
               <div
                 key={note.id}
-                className="rag-card-slot"
-                style={{ top: annLayout.tops[note.id] ?? 0 }}
+                className={'rag-card-slot' + (raiseId === note.id ? ' is-raised' : '')}
+                style={{
+                  top: annLayout.tops[note.id] ?? 0,
+                  // 新卡片压旧卡片；点了谁就把谁抬到最上层。
+                  zIndex: raiseId === note.id ? 200 : 10 + notes.indexOf(note),
+                }}
+                onMouseDown={() => setRaiseId(note.id)}
                 ref={(node) => {
                   if (node) cardRefs.current.set(note.id, node);
                   else cardRefs.current.delete(note.id);
@@ -1190,6 +1264,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
               >
                 <NoteCard
                   note={note}
+                  color={note.color || 'yellow'}
+                  onColor={(color) => changeNoteColor(note, color)}
                   status={noteStatus[note.id]}
                   onLocate={() => locate(note)}
                   onDelete={() => removeNote(note)}

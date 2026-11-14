@@ -7,6 +7,7 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { zh } from '@blocknote/core/locales';
 // CSS 走 text loader 内联（构建时把 @import 递归展开）：DSH 不保证宿主能加载插件的独立样式表。
 import mantineCss from '@blocknote/mantine/style.css';
+import { annotationColor } from './helpers.js';
 
 // ── 划词评论的正文标记 ─────────────────────────────────────
 // 正文里只加「背景高亮」这一种装饰：不插 widget、不拦截鼠标事件、不改文档结构。
@@ -91,7 +92,12 @@ const annotationPlugin = new Plugin({
         const from = textStart + Math.min(start, textSize);
         const to = Math.min(from + quote.length, textStart + textSize);
         if (to <= from) continue;
-        decos.push(Decoration.inline(from, to, { class: 'rag-ann', 'data-note-id': note.id }));
+        const color = annotationColor(note.color);
+        decos.push(Decoration.inline(from, to, {
+          class: 'rag-ann',
+          'data-note-id': note.id,
+          style: `background:${color.bg};box-shadow:inset 0 -2px 0 ${color.line}`,
+        }));
       }
       return DecorationSet.create(state.doc, decos);
     },
@@ -419,6 +425,58 @@ export function resolveBlock(editor, anchor) {
  * 把编辑器定位到评论锚定的那段文字：能精确定位就选中它，否则退到块尾。
  * 滚动用的是块节点自身，不动整页布局。
  */
+/** 选区右端在正文容器里的坐标（容器内容坐标系）：用来把「评论气泡」贴在被选中文字右边。 */
+export function selectionRect(editor) {
+  const view = editor?.prosemirrorView;
+  const dom = view?.dom;
+  const sel = view?.state?.selection;
+  if (!view || !dom || !sel || sel.empty) return null;
+  const scroller = dom.closest('.rag-doc') || dom.parentElement;
+  const base = (scroller || dom).getBoundingClientRect();
+  let coords;
+  try { coords = view.coordsAtPos(sel.to); } catch { return null; }
+  if (!coords) return null;
+  const scrollTop = scroller?.scrollTop || 0;
+  return {
+    top: coords.top - base.top + scrollTop + (coords.bottom - coords.top) / 2,
+    left: coords.right - base.left + (scroller?.scrollLeft || 0),
+  };
+}
+
+/** 文档大纲：只看标题块（heading），按层级缩进，点一下滚到那一段。 */
+export function outlineOf(editor) {
+  const blocks = editor?.document;
+  if (!Array.isArray(blocks)) return [];
+  const out = [];
+  const walk = (list) => {
+    for (const block of list || []) {
+      const level = block?.type === 'heading' ? (Number(block.props?.level) || 1) : 0;
+      if (level) {
+        const text = plainText(block).trim();
+        out.push({ id: block.id, level, text: text || '（空标题）' });
+      }
+      if (Array.isArray(block?.children) && block.children.length) walk(block.children);
+    }
+  };
+  walk(blocks);
+  return out;
+}
+
+export function scrollToBlock(editor, blockId) {
+  const view = editor?.prosemirrorView;
+  if (!view) return false;
+  const found = textblockById(view.state.doc, blockId);
+  if (!found) return false;
+  const scroller = view.dom.closest('.rag-doc');
+  try {
+    const coords = view.coordsAtPos(found.pos + 1);
+    if (scroller && coords) {
+      scroller.scrollTo({ top: scroller.scrollTop + coords.top - scroller.getBoundingClientRect().top - 72, behavior: 'smooth' });
+    }
+  } catch {}
+  return true;
+}
+
 export function focusBlock(editor, anchor) {
   const { status, block, start, length } = resolveAnchor(editor, anchor);
   if (!block) return { status: 'missing', placed: false };
