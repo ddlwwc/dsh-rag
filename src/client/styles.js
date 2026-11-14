@@ -114,6 +114,7 @@ export const RAG_CSS = `
 .rag-edge-toggle:hover{opacity:1;background:var(--dsw-alias-bg-hover,rgba(0,0,0,.06))}
 .rag-edge-toggle.is-left{left:calc(var(--rag-rail) - 8px)}
 .rag-edge-toggle.is-right{right:calc(var(--rag-side) - 8px)}
+.rag-root.is-rail-collapsed .rag-edge-toggle.is-left{left:2px}
 .rag-root.is-side-collapsed .rag-edge-toggle.is-right{right:2px}
 @media (max-width: 1080px){
   .rag-root{--rag-rail:200px;grid-template-columns:var(--rag-rail) minmax(0,1fr)}
@@ -128,8 +129,7 @@ export const RAG_CSS = `
   .rag-root{--rag-rail:0px;grid-template-columns:minmax(0,1fr)}
   .rag-rail{display:none}
 }
-/* 收起知识库栏只隐藏内容，栅格列宽保持不变：正文不会跟着往左跳。 */
-.rag-root.is-rail-collapsed{--rag-rail:264px}
+.rag-root.is-rail-collapsed{--rag-rail:0px}
 .rag-root.is-side-collapsed{--rag-side:0px}
 .rag-root.is-rail-collapsed .rag-rail,.rag-root.is-side-collapsed .rag-side{overflow:hidden;padding:0;border:0}
 .rag-root.is-rail-collapsed .rag-rail>*,.rag-root.is-side-collapsed .rag-side>*{visibility:hidden}
