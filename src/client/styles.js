@@ -18,7 +18,7 @@ export const RAG_CSS = `
 .rag-btn-primary{background:var(--dsw-alias-accent,#2f6bff);border-color:transparent;color:#fff}
 .rag-btn-ghost{border-color:transparent}
 .rag-link{border:none;background:none;color:var(--dsw-alias-accent,#2f6bff);cursor:pointer;font-size:12px;padding:0 2px}
-.rag-libs{max-height:34%;overflow-y:auto;padding:2px 6px}
+.rag-libs{min-height:34px;max-height:34%;overflow-y:auto;padding:2px 6px}
 .rag-lib{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:6px;cursor:pointer}
 .rag-ico{flex:0 0 auto;opacity:.5}
 .rag-ico-lib{opacity:.8}

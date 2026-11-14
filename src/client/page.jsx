@@ -727,7 +727,14 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
         aria-label={sideCollapsed ? '展开笔记栏' : '收起笔记栏'}
       >{sideCollapsed ? '‹' : '›'}</button>
 
-      <aside className="rag-rail">
+      <aside
+        className="rag-rail"
+        onContextMenu={(event) => {
+          if (event.defaultPrevented) return;
+          if (event.target.closest?.('.rag-lib, .rag-row')) return;
+          openLibsBlankMenu(event);
+        }}
+      >
         <div className="rag-rail-head">
           <span className="rag-title">知识库</span>
         </div>
