@@ -74,6 +74,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const [outline, setOutline] = useState([]);
   // 大纲默认只展开一级：记录「已展开」的标题 id，点开才显示它的子标题。
   const [outlineOpen, setOutlineOpen] = useState(() => new Set());
+  const [outlineActive, setOutlineActive] = useState('');
+  const [outlineIndent, setOutlineIndent] = useState(true);
 
   const [dialog, setDialog] = useState(null);
   const dialogResolve = useRef(null);
@@ -463,10 +465,32 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
     if (!sideCollapsed) return undefined;
     const editor = editorRef.current;
     if (!editor) { setOutline([]); return undefined; }
-    const run = () => setOutline(outlineOf(editor));
+    const run = () => {
+      const next = outlineOf(editor);
+      setOutline((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
+      // 当前阅读位置：最后一个已经越过正文顶部参考线的标题，用来打左侧竖条。
+      let active = '';
+      for (const item of next) {
+        const geometry = anchorGeometry(editor, { blockId: item.id });
+        if (!geometry) continue;
+        if (geometry.docViewTop <= 96) active = item.id; else break;
+      }
+      setOutlineActive((current) => (current === active ? current : active));
+    };
     run();
-    const timer = setInterval(run, 1500);
-    return () => clearInterval(timer);
+    const timer = setInterval(run, 1200);
+    const scroller = docRef.current;
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; run(); });
+    };
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      clearInterval(timer);
+      if (frame) cancelAnimationFrame(frame);
+      scroller?.removeEventListener('scroll', onScroll);
+    };
   }, [sideCollapsed, editorReady, doc?.relPath]);
 
   /**
@@ -1233,7 +1257,48 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
 
       <aside className={'rag-side' + (sideOpen ? ' is-open' : '')}>
         <div className="rag-side-bar">
-          <span>{sideCollapsed ? '大纲' : `划词评论（${notes.length}）`}</span>
+          {sideCollapsed ? (
+            <span className="rag-outline-head">
+              <span>大纲</span>
+              <button
+                type="button"
+                className="rag-outline-head-btn"
+                title={outlineOpen.size ? '收起全部' : '展开全部'}
+                aria-label={outlineOpen.size ? '收起全部' : '展开全部'}
+                onClick={() => {
+                  if (!outline.length) return;
+                  const parents = new Set(outlineRows.filter((row) => row.hasChild).map((row) => row.item.id));
+                  setOutlineOpen((current) => (current.size ? new Set() : parents));
+                }}
+              >
+                {outlineOpen.size ? (
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M1.6 8s2.4-4.4 6.4-4.4S14.4 8 14.4 8s-2.4 4.4-6.4 4.4S1.6 8 1.6 8Z" stroke="currentColor" strokeWidth="1.2" />
+                    <circle cx="8" cy="8" r="1.9" stroke="currentColor" strokeWidth="1.2" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M1.6 8s2.4-4.4 6.4-4.4S14.4 8 14.4 8s-2.4 4.4-6.4 4.4S1.6 8 1.6 8Z" stroke="currentColor" strokeWidth="1.2" />
+                    <circle cx="8" cy="8" r="1.9" fill="currentColor" />
+                  </svg>
+                )}
+              </button>
+              <button
+                type="button"
+                className={'rag-outline-head-btn' + (outlineIndent ? ' is-on' : '')}
+                title={outlineIndent ? '改为平铺' : '按层级缩进'}
+                aria-label={outlineIndent ? '改为平铺' : '按层级缩进'}
+                onClick={() => setOutlineIndent((value) => !value)}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M2.2 3.6h11.6M2.2 8h7.6M2.2 12.4h9.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                  <path d="M11.6 6.4 13.4 8l-1.8 1.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </span>
+          ) : (
+            <span>{`划词评论（${notes.length}）`}</span>
+          )}
           {sideCollapsed ? (
             <button
               type="button"
@@ -1259,7 +1324,12 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
               const item = row.item;
               const open = outlineOpen.has(item.id);
               return (
-                <div key={item.id} className={`rag-outline-row is-l${Math.min(item.level, 4)}`}>
+                <div
+                  key={item.id}
+                  className={`rag-outline-row is-l${outlineIndent ? Math.min(item.level, 4) : 1}`
+                    + (outlineActive === item.id ? ' is-active' : '')
+                    + (item.level <= 2 ? ' is-strong' : '')}
+                >
                   {row.hasChild ? (
                     <button
                       type="button"
@@ -1271,7 +1341,7 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
                         return next;
                       })}
                     >
-                      <svg width="9" height="9" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8 9 6 3 10.2Z" fill="currentColor" /></svg>
                     </button>
                   ) : (
                     <span className="rag-outline-caret is-blank" />
