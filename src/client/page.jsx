@@ -72,6 +72,8 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   const [bubble, setBubble] = useState(null);
   // 右栏收起时改展示本文大纲。
   const [outline, setOutline] = useState([]);
+  // 大纲默认只展开一级：记录「已展开」的标题 id，点开才显示它的子标题。
+  const [outlineOpen, setOutlineOpen] = useState(() => new Set());
 
   const [dialog, setDialog] = useState(null);
   const dialogResolve = useRef(null);
@@ -341,6 +343,29 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
   // 输入框的锚点单独走 ref：打字时不能让重排函数换身份，否则每敲一个字都要量一遍卡片高度。
   const composerAnchorRef = useRef(null);
   const composerKey = composer ? `${composer.anchor.blockId}:${composer.anchor.start}` : '';
+
+  const outlineRows = useMemo(() => {
+    const stack = [];
+    const rows = outline.map((item) => {
+      while (stack.length && stack[stack.length - 1].level >= item.level) stack.pop();
+      const parent = stack[stack.length - 1] || null;
+      stack.push({ level: item.level, id: item.id });
+      return { item, parentId: parent ? parent.id : null, hasChild: false };
+    });
+    const parents = new Set(rows.map((row) => row.parentId).filter(Boolean));
+    const byId = new Map(rows.map((row) => [row.item.id, row]));
+    return rows.map((row) => {
+      row.hasChild = parents.has(row.item.id);
+      // 可见条件：一级永远显示；更深层要求所有祖先都展开过。
+      let visible = true;
+      let cursor = row.parentId;
+      while (cursor) {
+        if (!outlineOpen.has(cursor)) { visible = false; break; }
+        cursor = byId.get(cursor)?.parentId ?? null;
+      }
+      return { ...row, visible };
+    });
+  }, [outline, outlineOpen]);
 
   const layoutAnnotations = useCallback(() => {
     const editor = editorRef.current;
@@ -1230,15 +1255,36 @@ export function RagPage({ ctx, onStartRole, standalone = false }) {
         {sideCollapsed && (
           <div className="rag-outline-list">
             {outline.length === 0 && <p className="rag-empty">这篇文档还没有标题。</p>}
-            {outline.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`rag-outline-item is-l${Math.min(item.level, 4)}`}
-                onClick={() => scrollToBlock(editorRef.current, item.id)}
-                title={item.text}
-              >{item.text}</button>
-            ))}
+            {outlineRows.filter((row) => row.visible).map((row) => {
+              const item = row.item;
+              const open = outlineOpen.has(item.id);
+              return (
+                <div key={item.id} className={`rag-outline-row is-l${Math.min(item.level, 4)}`}>
+                  {row.hasChild ? (
+                    <button
+                      type="button"
+                      className={'rag-outline-caret' + (open ? ' is-open' : '')}
+                      aria-label={open ? '收起子标题' : '展开子标题'}
+                      onClick={() => setOutlineOpen((current) => {
+                        const next = new Set(current);
+                        if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                        return next;
+                      })}
+                    >
+                      <svg width="9" height="9" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    </button>
+                  ) : (
+                    <span className="rag-outline-caret is-blank" />
+                  )}
+                  <button
+                    type="button"
+                    className="rag-outline-item"
+                    onClick={() => scrollToBlock(editorRef.current, item.id)}
+                    title={item.text}
+                  >{item.text}</button>
+                </div>
+              );
+            })}
           </div>
         )}
         <div className="rag-ann-scroll" hidden={sideCollapsed}>

@@ -180,13 +180,17 @@ export const RAG_CSS = `
 .rag-bubble:hover{background:var(--dsw-alias-accent,#2f6bff);color:#fff;border-color:transparent}
 
 /* 右栏收起后的大纲 */
-.rag-outline-list{flex:1;min-height:0;overflow-y:auto;padding:6px 8px 20px;display:flex;flex-direction:column;gap:1px}
-.rag-outline-item{display:block;width:100%;text-align:left;border:none;background:none;color:var(--dsw-alias-text-primary,#1f2329);font-size:12px;line-height:1.5;padding:4px 6px;border-radius:6px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rag-outline-list{flex:1;min-height:0;overflow-y:auto;padding:8px 6px 20px;display:flex;flex-direction:column;gap:2px}
+.rag-outline-row{display:flex;align-items:center;gap:2px;min-height:22px}
+.rag-outline-caret{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;padding:0;border:none;background:none;color:inherit;opacity:.5;cursor:pointer;border-radius:4px;transition:transform .12s ease}
+.rag-outline-caret.is-open{transform:rotate(90deg);opacity:.8}
+.rag-outline-caret.is-blank{pointer-events:none;opacity:0}
+.rag-outline-item{flex:1 1 auto;min-width:0;text-align:left;border:none;background:none;color:var(--dsw-alias-text-primary,#1f2329);font-size:12.5px;line-height:20px;height:22px;padding:1px 6px 1px 0;border-radius:6px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rag-outline-item:hover{background:var(--dsw-alias-bg-hover,rgba(0,0,0,.05))}
-.rag-outline-item.is-l1{font-weight:600}
-.rag-outline-item.is-l2{padding-left:16px}
-.rag-outline-item.is-l3{padding-left:26px;opacity:.88}
-.rag-outline-item.is-l4{padding-left:36px;opacity:.8}
+.rag-outline-row.is-l1 .rag-outline-item{font-weight:600}
+.rag-outline-row.is-l2{padding-left:12px}
+.rag-outline-row.is-l3{padding-left:22px}
+.rag-outline-row.is-l4{padding-left:32px}
 
 /* 卡片左上角：改选中文字的背景色 */
 .rag-color-btn{flex:0 0 auto;width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.18);padding:0;cursor:pointer;background:rgba(255,214,10,.9)}
